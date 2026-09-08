@@ -20,6 +20,16 @@ def test_lifecycle_stops_in_reverse_order_and_continues_after_failure():
     assert calls == ["tray", "scheduler", "database"]
 
 
+def test_resident_qt_application_does_not_quit_when_last_dialog_closes():
+    class FakeApplication:
+        def __init__(self): self.quit_on_last_window_closed = None
+        def setQuitOnLastWindowClosed(self, value): self.quit_on_last_window_closed = value
+
+    application = FakeApplication()
+    main_module.configure_resident_qt_application(application)
+    assert application.quit_on_last_window_closed is False
+
+
 def test_main_releases_lifecycle_when_tray_is_unavailable(monkeypatch, tmp_path):
     stopped = []
 

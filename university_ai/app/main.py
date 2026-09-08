@@ -46,6 +46,11 @@ def _rule_configuration(store: SettingsStore) -> RuleConfiguration:
     )
 
 
+def configure_resident_qt_application(app: QApplication) -> None:
+    """A Tray-resident application must not exit merely because a dialog closes."""
+    app.setQuitOnLastWindowClosed(False)
+
+
 def build_resident_application(config: AppConfig):
     """Compose MVP 1 components. UI adapters are the only Windows/Qt boundary."""
     database = Database(config.database_path)
@@ -56,6 +61,7 @@ def build_resident_application(config: AppConfig):
     context = ContextEngine(courses, assignments, exams, overrides)
     rules = RuleEngine(configuration_provider=lambda: _rule_configuration(settings))
     app = QApplication.instance() or QApplication([])
+    configure_resident_qt_application(app)
     lifecycle_holder = {}
     presenter = UniversityPresenter(context, courses)
     tray = SystemTrayController(
