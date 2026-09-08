@@ -12,6 +12,7 @@ class SystemTrayController:
     def __init__(
         self, presenter: UniversityPresenter, settings_factory, on_quit,
         documents_factory: Callable[[], object] | None = None,
+        llm_factory: Callable[[], object] | None = None,
         *, system_tray_available: Callable[[], bool] = QSystemTrayIcon.isSystemTrayAvailable,
         application_provider: Callable[[], QApplication | None] = QApplication.instance,
         tray_factory=QSystemTrayIcon,
@@ -21,6 +22,7 @@ class SystemTrayController:
         self._settings_factory = settings_factory
         self._on_quit = on_quit
         self._documents_factory = documents_factory
+        self._llm_factory = llm_factory
         self._logger = logging.getLogger(__name__)
         self._tray: QSystemTrayIcon | None = None
         self._menu: QMenu | None = None
@@ -53,6 +55,8 @@ class SystemTrayController:
         self._menu.addAction("試験", lambda: self._show("試験", self._presenter.exams()))
         if self._documents_factory is not None:
             self._menu.addAction("資料", self._open_documents)
+        if self._llm_factory is not None:
+            self._menu.addAction("AIに質問", self._open_llm)
         if self._capture_controller is not None:
             self._capture_menu = self._menu.addMenu("画面キャプチャ")
             about_to_show = getattr(self._capture_menu, "aboutToShow", None)
@@ -98,3 +102,7 @@ class SystemTrayController:
     def _open_documents(self) -> None:
         assert self._documents_factory is not None
         self._documents_factory().exec()
+
+    def _open_llm(self) -> None:
+        assert self._llm_factory is not None
+        self._llm_factory().exec()

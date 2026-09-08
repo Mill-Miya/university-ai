@@ -23,6 +23,9 @@ from university_ai.capture.service import CaptureStorageService, ScreenCaptureSe
 from university_ai.documents.import_service import DocumentImportService
 from university_ai.ocr.engine import TesseractOcrEngine
 from university_ai.ocr.service import OcrService
+from university_ai.llm.ollama import OllamaEngine
+from university_ai.llm.service import LlmService
+from university_ai.ui.llm import AiQuestionDialog
 from university_ai.notification.fallback import FallbackOnErrorAdapter, TrayFallbackAdapter
 from university_ai.notification.registration import WindowsToastRegistration
 from university_ai.notification.service import NotificationService
@@ -80,11 +83,13 @@ def build_resident_application(config: AppConfig):
     lifecycle_holder = {}
     presenter = UniversityPresenter(context, courses)
     document_presenter = DocumentPresenter(documents, DocumentImportService(documents, config.data_dir / "documents"))
+    llm_service = LlmService(OllamaEngine())
     tray = SystemTrayController(
         presenter,
         lambda: SettingsDialog(settings, startup),
         lambda: lifecycle_holder["lifecycle"].stop() or app.quit(),
         lambda: DocumentsDialog(document_presenter),
+        lambda: AiQuestionDialog(llm_service),
     )
     capture_service = ScreenCaptureService(
         QtScreenCaptureBackend(), captures, CaptureStorageService(config.data_dir / "captures")
