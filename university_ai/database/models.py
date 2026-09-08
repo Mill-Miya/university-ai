@@ -37,6 +37,17 @@ class CaptureType(StrEnum):
     REGION = "REGION"
 
 
+class OcrSourceType(StrEnum):
+    DOCUMENT = "DOCUMENT"
+    SCREEN_CAPTURE = "SCREEN_CAPTURE"
+
+
+class OcrStatus(StrEnum):
+    PENDING = "PENDING"
+    EXTRACTED = "EXTRACTED"
+    FAILED = "FAILED"
+
+
 @dataclass(frozen=True)
 class Course:
     id: int | None
@@ -127,4 +138,18 @@ class ScreenCapture:
     captured_at: datetime
     monitor_index: int | None = None
     window_title: str | None = None
+    metadata_json: str = "{}"
+
+
+@dataclass(frozen=True)
+class OcrResult:
+    id: int | None
+    source_type: OcrSourceType
+    source_id: int
+    status: OcrStatus
+    processed_at: datetime
+    text: str | None = None
+    language: str | None = None
+    engine: str | None = None
+    error: str | None = None
     metadata_json: str = "{}"

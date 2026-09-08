@@ -212,9 +212,10 @@ def test_tray_wires_capture_submenu_without_real_screen():
         def capture_full_screen(self): pass
         def capture_active_window(self): pass
         def select_region(self): pass
+        def select_region_and_ocr(self): pass
 
     tray = SystemTrayController(None, lambda: None, lambda: None, system_tray_available=lambda: True,
                                 application_provider=lambda: Application(), tray_factory=Tray, menu_factory=Menu)
     tray.set_capture_controller(CaptureController())
     assert tray.start()
-    assert tray._capture_menu is not None and len(tray._capture_menu.actions) == 3
+    assert tray._capture_menu is not None and len(tray._capture_menu.actions) == 4

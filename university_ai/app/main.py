@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from datetime import timedelta
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from university_ai.app.config import AppConfig, SettingsStore
 from university_ai.app.lifecycle import ApplicationLifecycle
@@ -16,11 +16,13 @@ from university_ai.database.database import Database
 from university_ai.database.migrations import migrate
 from university_ai.database.repository import (
     AssignmentRepository, CourseRepository, DocumentRepository, ExamRepository, NotificationEventRepository,
-    ScheduleOverrideRepository, ScreenCaptureRepository,
+    OcrResultRepository, ScheduleOverrideRepository, ScreenCaptureRepository,
 )
 from university_ai.capture.backend import QtScreenCaptureBackend
 from university_ai.capture.service import CaptureStorageService, ScreenCaptureService
 from university_ai.documents.import_service import DocumentImportService
+from university_ai.ocr.engine import TesseractOcrEngine
+from university_ai.ocr.service import OcrService
 from university_ai.notification.fallback import FallbackOnErrorAdapter, TrayFallbackAdapter
 from university_ai.notification.registration import WindowsToastRegistration
 from university_ai.notification.service import NotificationService
@@ -64,7 +66,7 @@ def build_resident_application(config: AppConfig):
     connection = database.connect(); migrate(connection)
     courses = CourseRepository(connection); assignments = AssignmentRepository(connection); exams = ExamRepository(connection)
     overrides = ScheduleOverrideRepository(connection); events = NotificationEventRepository(connection); documents = DocumentRepository(connection)
-    captures = ScreenCaptureRepository(connection)
+    captures = ScreenCaptureRepository(connection); ocr_results = OcrResultRepository(connection)
     settings = SettingsStore(config.settings_path); startup = WindowsStartupAdapter()
     toast_registration = WindowsToastRegistration(project_root=config.data_dir.parent)
     if not toast_registration.register():
@@ -87,10 +89,13 @@ def build_resident_application(config: AppConfig):
     capture_service = ScreenCaptureService(
         QtScreenCaptureBackend(), captures, CaptureStorageService(config.data_dir / "captures")
     )
+    ocr_service = OcrService(ocr_results, documents, captures, TesseractOcrEngine())
     tray.set_capture_controller(ScreenCaptureController(
         capture_service,
         on_success=lambda body: tray.show_message("画面キャプチャ", body),
         on_failure=lambda body: tray.show_message("画面キャプチャ", body),
+        ocr_service=ocr_service,
+        on_ocr_result=lambda text: QMessageBox.information(None, "OCR結果", text),
     ))
     adapter = FallbackOnErrorAdapter(
         WindowsToastAdapter(registration=toast_registration),

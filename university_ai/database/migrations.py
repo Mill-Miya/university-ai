@@ -81,6 +81,22 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             metadata_json TEXT NOT NULL
         );
     """),
+    (5, """
+        CREATE TABLE ocr_results (
+            id INTEGER PRIMARY KEY,
+            source_type TEXT NOT NULL CHECK (source_type IN ('DOCUMENT','SCREEN_CAPTURE')),
+            source_id INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('PENDING','EXTRACTED','FAILED')),
+            text TEXT,
+            language TEXT,
+            engine TEXT,
+            processed_at TEXT NOT NULL,
+            error TEXT,
+            metadata_json TEXT NOT NULL
+        );
+        CREATE INDEX ocr_results_source_processed
+            ON ocr_results(source_type, source_id, processed_at DESC);
+    """),
 )
 
 

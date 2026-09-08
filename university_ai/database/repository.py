@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from university_ai.database.models import (
     Assignment, AssignmentStatus, CaptureType, Course, Document, Exam, ExtractionStatus, NotificationEvent,
-    NotificationStatus, OverrideType, ScheduleOverride, ScreenCapture,
+    NotificationStatus, OcrResult, OcrSourceType, OcrStatus, OverrideType, ScheduleOverride, ScreenCapture,
 )
 
 
@@ -81,6 +81,17 @@ def _validate_capture(capture: ScreenCapture) -> None:
         raise ValueError("monitor_index must not be negative")
     json.loads(capture.metadata_json)
     _utc_text(capture.captured_at)
+
+
+def _validate_ocr_result(result: OcrResult) -> None:
+    if result.source_id <= 0:
+        raise ValueError("OCR source_id must be positive")
+    json.loads(result.metadata_json)
+    _utc_text(result.processed_at)
+    if result.status is OcrStatus.EXTRACTED and (result.text is None or result.engine is None):
+        raise ValueError("extracted OCR result requires text and engine")
+    if result.status is OcrStatus.FAILED and not result.error:
+        raise ValueError("failed OCR result requires an error")
 
 
 class CourseRepository:
@@ -393,6 +404,49 @@ class ScreenCaptureRepository:
         return cursor.rowcount == 1
 
 
+class OcrResultRepository:
+    """Persistent OCR result history; source existence is verified by OcrService."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._db = connection
+
+    def create(self, result: OcrResult) -> OcrResult:
+        _validate_ocr_result(result)
+        cursor = self._db.execute(
+            """INSERT INTO ocr_results(source_type,source_id,status,text,language,engine,processed_at,error,metadata_json)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (result.source_type.value, result.source_id, result.status.value, result.text, result.language,
+             result.engine, _utc_text(result.processed_at), result.error, result.metadata_json),
+        )
+        self._db.commit()
+        return replace(result, id=cursor.lastrowid)
+
+    def get(self, result_id: int) -> OcrResult | None:
+        row = self._db.execute("SELECT * FROM ocr_results WHERE id=?", (result_id,)).fetchone()
+        return _ocr_result(row) if row else None
+
+    def list_for_source(self, source_type: OcrSourceType, source_id: int) -> list[OcrResult]:
+        rows = self._db.execute(
+            "SELECT * FROM ocr_results WHERE source_type=? AND source_id=? ORDER BY processed_at DESC, id DESC",
+            (source_type.value, source_id),
+        )
+        return [_ocr_result(row) for row in rows]
+
+    def update(self, result: OcrResult) -> OcrResult:
+        if result.id is None:
+            raise ValueError("OCR result id is required for update")
+        _validate_ocr_result(result)
+        cursor = self._db.execute(
+            """UPDATE ocr_results SET status=?,text=?,language=?,engine=?,processed_at=?,error=?,metadata_json=? WHERE id=?""",
+            (result.status.value, result.text, result.language, result.engine, _utc_text(result.processed_at),
+             result.error, result.metadata_json, result.id),
+        )
+        self._db.commit()
+        if cursor.rowcount != 1:
+            raise KeyError(f"OCR result {result.id} not found")
+        return result
+
+
 def _course(row: sqlite3.Row) -> Course:
     return Course(**dict(row))
 
@@ -439,3 +493,11 @@ def _screen_capture(row: sqlite3.Row) -> ScreenCapture:
     values["capture_type"] = CaptureType(values["capture_type"])
     values["captured_at"] = _as_utc(values["captured_at"])
     return ScreenCapture(**values)
+
+
+def _ocr_result(row: sqlite3.Row) -> OcrResult:
+    values = dict(row)
+    values["source_type"] = OcrSourceType(values["source_type"])
+    values["status"] = OcrStatus(values["status"])
+    values["processed_at"] = _as_utc(values["processed_at"])
+    return OcrResult(**values)

@@ -85,12 +85,16 @@ class ScreenCaptureController:
         overlay_factory: Callable[[Callable[[CaptureRectangle], None], Callable[[], None]], object] = CaptureSelectionOverlay,
         on_success: Callable[[str], None] | None = None,
         on_failure: Callable[[str], None] | None = None,
+        ocr_service=None,
+        on_ocr_result: Callable[[str], None] | None = None,
         defer: Callable[[Callable[[], None]], None] | None = None,
     ) -> None:
         self._service = service
         self._overlay_factory = overlay_factory
         self._on_success = on_success or (lambda _message: None)
         self._on_failure = on_failure or (lambda _message: None)
+        self._ocr_service = ocr_service
+        self._on_ocr_result = on_ocr_result or (lambda _text: None)
         self._overlay = None
         self._active_window_hint: int | None = None
         self._defer = defer or (lambda callback: QTimer.singleShot(self._ACTIVE_CAPTURE_SETTLE_MS, callback))
@@ -115,10 +119,19 @@ class ScreenCaptureController:
             self._logger.warning("No valid active-window capture target was available")
 
     def select_region(self) -> None:
+        self._start_selection(self._capture_region)
+
+    def select_region_and_ocr(self) -> None:
+        if self._ocr_service is None:
+            self._notify(self._on_failure, "OCRは利用できません。")
+            return
+        self._start_selection(self._capture_region_and_ocr)
+
+    def _start_selection(self, selected: Callable[[CaptureRectangle], None]) -> None:
         if self._overlay is not None:
             return
         try:
-            self._overlay = self._overlay_factory(self._capture_region, self._cancelled)
+            self._overlay = self._overlay_factory(selected, self._cancelled)
             self._overlay.show()
             self._overlay.raise_()
             self._overlay.activateWindow()
@@ -130,6 +143,21 @@ class ScreenCaptureController:
     def _capture_region(self, rectangle: CaptureRectangle) -> None:
         self._overlay = None
         self._run(lambda: self._service.capture_region(rectangle))
+
+    def _capture_region_and_ocr(self, rectangle: CaptureRectangle) -> None:
+        self._overlay = None
+        try:
+            captured = self._service.capture_region(rectangle).capture
+            assert self._ocr_service is not None
+            outcome = self._ocr_service.recognize_capture(captured.id or 0)
+            if outcome.result.status.value != "EXTRACTED":
+                raise RuntimeError(outcome.result.error or "OCR failed")
+        except Exception:
+            self._logger.exception("Region OCR failed")
+            self._notify(self._on_failure, "範囲内の文字を読み取れませんでした。")
+            return
+        self._notify(self._on_success, f"保存しました: {captured.stored_path}")
+        self._notify(self._on_ocr_result, outcome.result.text or "文字を検出できませんでした。")
 
     def _cancelled(self) -> None:
         self._overlay = None
