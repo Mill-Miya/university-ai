@@ -1,0 +1,2 @@
+"""SQLite infrastructure and repositories."""
+
