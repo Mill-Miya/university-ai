@@ -10,7 +10,9 @@ class LlmService:
     def ask(self, prompt: str, **options) -> LlmResponse:
         if not prompt or not prompt.strip(): raise LlmServiceError("prompt must not be empty")
         if not self._engine.availability(): raise LlmServiceError("local LLM runtime or model is unavailable")
-        return self._engine.generate(LlmRequest(prompt=prompt.strip(), **options))
+        response=self._engine.generate(LlmRequest(prompt=prompt.strip(), **options))
+        if not response.text.strip(): raise LlmServiceError("local LLM returned no final answer")
+        return response
     def explain_text(self, text: str) -> LlmResponse:
         if not text or not text.strip(): raise LlmServiceError("OCR text must not be empty")
         return self.ask(text, system_prompt=self._OCR_INSTRUCTION)
