@@ -27,5 +27,5 @@ class WindowsToastAdapter:
             f"<toast><visual><binding template='ToastGeneric'><text>{escape(candidate.title)}</text>"
             f"<text>{escape(candidate.body)}</text></binding></visual></toast>"
         )
-        notifier = ToastNotificationManager.create_toast_notifier(self._app_id)
+        notifier = ToastNotificationManager.create_toast_notifier_with_id(self._app_id)
         notifier.show(ToastNotification(document))

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from threading import Thread
 
 import pytest
 
@@ -100,3 +101,14 @@ def test_scheduler_starts_stops_and_reads_registered_services(services):
     assert scheduler.running
     scheduler.stop()
     assert not scheduler.running
+
+
+def test_scheduler_can_evaluate_database_from_a_background_thread(services):
+    _, courses, _, _, _, context_engine = services
+    add_course(courses)
+    delivered = []
+    scheduler = UniversityScheduler(context_engine, RuleEngine(), delivered.append)
+    thread = Thread(target=scheduler.run_once)
+    thread.start(); thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert delivered == [[]]

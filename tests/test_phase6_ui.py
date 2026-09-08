@@ -62,9 +62,11 @@ def test_settings_persist_reload_fallback_and_drive_rule_configuration(tmp_path)
 
 
 def test_startup_adapter_is_idempotent_and_safe(tmp_path):
-    startup = WindowsStartupAdapter(startup_directory=tmp_path)
+    project_root = tmp_path / "project"
+    startup = WindowsStartupAdapter(startup_directory=tmp_path, project_root=project_root)
     assert not startup.enabled()
     assert startup.enable() and startup.enable() and startup.enabled()
+    assert f'cd /d "{project_root}"' in (tmp_path / "University AI.cmd").read_text(encoding="utf-8")
     assert startup.disable() and startup.disable() and not startup.enabled()
 
 

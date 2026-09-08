@@ -9,10 +9,13 @@ from pathlib import Path
 class WindowsStartupAdapter:
     """Per-user Startup-folder registration; no administrative permission is required."""
 
-    def __init__(self, *, startup_directory: Path | None = None, filename: str = "University AI.cmd") -> None:
+    def __init__(
+        self, *, startup_directory: Path | None = None, filename: str = "University AI.cmd", project_root: Path | None = None
+    ) -> None:
         default = Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs/Startup"
         self._directory = startup_directory or default
         self._path = self._directory / filename
+        self._project_root = project_root or Path(__file__).resolve().parents[2]
         self._logger = logging.getLogger(__name__)
 
     def enabled(self) -> bool:
@@ -21,7 +24,7 @@ class WindowsStartupAdapter:
     def enable(self) -> bool:
         try:
             self._directory.mkdir(parents=True, exist_ok=True)
-            command = f'@echo off\r\n"{sys.executable}" -m university_ai.app.main\r\n'
+            command = f'@echo off\r\ncd /d "{self._project_root}"\r\n"{sys.executable}" -m university_ai.app.main\r\n'
             self._path.write_text(command, encoding="utf-8")
             return True
         except OSError:

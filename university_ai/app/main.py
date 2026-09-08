@@ -80,7 +80,11 @@ def main(root: Path | None = None, *, run_event_loop: bool | None = None) -> int
         return 0
     try:
         app, tray, scheduler, lifecycle = build_resident_application(config)
-        tray.start(); scheduler.start()
+        if not tray.start():
+            logging.getLogger(__name__).error("University AI cannot run without System Tray")
+            lifecycle.stop()
+            return 1
+        scheduler.start()
         result = app.exec()
         lifecycle.stop()
         return result

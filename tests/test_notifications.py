@@ -116,7 +116,7 @@ def test_windows_and_fallback_adapters_are_replaceable():
     WindowsToastAdapter(lambda title, body: messages.append(("windows", title, body))).send(candidate())
     TrayFallbackAdapter(lambda title, body: messages.append(("tray", title, body))).send(candidate())
     fallback = TrayFallbackAdapter(lambda title, body: messages.append(("fallback", title, body)))
-    FallbackOnErrorAdapter(WindowsToastAdapter(), fallback).send(candidate())
+    FallbackOnErrorAdapter(WindowsToastAdapter(lambda *_: (_ for _ in ()).throw(RuntimeError("toast failed"))), fallback).send(candidate())
     assert [message[0] for message in messages] == ["windows", "tray", "fallback"]
 
 

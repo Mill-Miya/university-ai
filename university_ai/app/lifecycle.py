@@ -16,9 +16,10 @@ class ApplicationLifecycle:
         self._logger = logging.getLogger(__name__)
 
     def stop(self) -> None:
+        self._logger.info("Application lifecycle stopping")
         for component in reversed(self._stoppables):
             try:
                 component.stop()
             except Exception:
                 self._logger.exception("Component shutdown failed")
-
+        self._logger.info("Application lifecycle stopped")
