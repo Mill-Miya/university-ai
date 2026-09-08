@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor, QGuiApplication, QKeyEvent, QMouseEvent, QPain
 from PySide6.QtWidgets import QWidget
 
 from university_ai.capture.backend import CaptureRectangle
+from university_ai.ui.llm import LlmWorker
 
 
 class CaptureSelectionOverlay(QWidget):
@@ -87,6 +88,8 @@ class ScreenCaptureController:
         on_failure: Callable[[str], None] | None = None,
         ocr_service=None,
         on_ocr_result: Callable[[str], None] | None = None,
+        llm_service=None,
+        on_llm_result: Callable[[str], None] | None = None,
         defer: Callable[[Callable[[], None]], None] | None = None,
     ) -> None:
         self._service = service
@@ -95,6 +98,7 @@ class ScreenCaptureController:
         self._on_failure = on_failure or (lambda _message: None)
         self._ocr_service = ocr_service
         self._on_ocr_result = on_ocr_result or (lambda _text: None)
+        self._llm_service = llm_service; self._on_llm_result = on_llm_result or (lambda _text: None); self._llm_worker=None
         self._overlay = None
         self._active_window_hint: int | None = None
         self._defer = defer or (lambda callback: QTimer.singleShot(self._ACTIVE_CAPTURE_SETTLE_MS, callback))
@@ -127,6 +131,12 @@ class ScreenCaptureController:
             return
         self._start_selection(self._capture_region_and_ocr)
 
+    def select_region_and_ask(self) -> None:
+        if self._ocr_service is None or self._llm_service is None:
+            self._notify(self._on_failure, "OCRまたはローカルAIは利用できません。")
+            return
+        self._start_selection(self._capture_region_and_ask)
+
     def _start_selection(self, selected: Callable[[CaptureRectangle], None]) -> None:
         if self._overlay is not None:
             return
@@ -158,6 +168,21 @@ class ScreenCaptureController:
             return
         self._notify(self._on_success, f"保存しました: {captured.stored_path}")
         self._notify(self._on_ocr_result, outcome.result.text or "文字を検出できませんでした。")
+
+    def _capture_region_and_ask(self, rectangle: CaptureRectangle) -> None:
+        self._overlay = None
+        try:
+            captured = self._service.capture_region(rectangle).capture
+            outcome = self._ocr_service.recognize_capture(captured.id or 0)
+            text = outcome.result.text or ""
+            if outcome.result.status.value != "EXTRACTED" or not text.strip(): raise RuntimeError("OCR failed or empty")
+        except Exception:
+            self._logger.exception("Region OCR to LLM failed"); self._notify(self._on_failure, "範囲内の文字を読み取れませんでした。"); return
+        self._notify(self._on_success, f"保存しました: {captured.stored_path}")
+        self._llm_worker=LlmWorker(action=lambda: self._llm_service.explain_text(text))
+        self._llm_worker.completed.connect(lambda answer: self._notify(self._on_llm_result, answer))
+        self._llm_worker.failed.connect(lambda _error: self._notify(self._on_failure, "ローカルAIの回答を生成できませんでした。"))
+        self._llm_worker.start()
 
     def _cancelled(self) -> None:
         self._overlay = None

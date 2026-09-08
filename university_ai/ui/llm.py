@@ -4,9 +4,9 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QTextEd
 
 class LlmWorker(QThread):
     completed=Signal(str); failed=Signal(str)
-    def __init__(self, service, prompt): super().__init__(); self._service,self._prompt=service,prompt
+    def __init__(self, service=None, prompt=None, *, action=None): super().__init__(); self._service,self._prompt,self._action=service,prompt,action
     def run(self):
-        try: self.completed.emit(self._service.ask(self._prompt).text)
+        try: self.completed.emit((self._action() if self._action else self._service.ask(self._prompt)).text)
         except Exception: self.failed.emit('ローカルAIは現在利用できません。')
 
 class AiQuestionDialog(QDialog):

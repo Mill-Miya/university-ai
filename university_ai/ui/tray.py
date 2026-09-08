@@ -66,6 +66,7 @@ class SystemTrayController:
             self._capture_menu.addAction("アクティブウィンドウ", self._capture_controller.capture_active_window)
             self._capture_menu.addAction("範囲選択", self._capture_controller.select_region)
             self._capture_menu.addAction("範囲を読取", self._capture_controller.select_region_and_ocr)
+            self._capture_menu.addAction("範囲をAIに聞く", self._capture_controller.select_region_and_ask)
         self._menu.addAction("設定", self._open_settings)
         self._menu.addSeparator()
         self._menu.addAction("終了", self._on_quit)

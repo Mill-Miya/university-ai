@@ -101,6 +101,8 @@ def build_resident_application(config: AppConfig):
         on_failure=lambda body: tray.show_message("画面キャプチャ", body),
         ocr_service=ocr_service,
         on_ocr_result=lambda text: QMessageBox.information(None, "OCR結果", text),
+        llm_service=llm_service,
+        on_llm_result=lambda text: QMessageBox.information(None, "AI回答", text),
     ))
     adapter = FallbackOnErrorAdapter(
         WindowsToastAdapter(registration=toast_registration),
