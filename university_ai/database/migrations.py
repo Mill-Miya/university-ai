@@ -68,6 +68,19 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             metadata_json TEXT NOT NULL
         );
     """),
+    (4, """
+        CREATE TABLE screen_captures (
+            id INTEGER PRIMARY KEY,
+            capture_type TEXT NOT NULL CHECK (capture_type IN ('FULL_SCREEN','ACTIVE_WINDOW','REGION')),
+            stored_path TEXT NOT NULL UNIQUE,
+            width INTEGER NOT NULL CHECK (width > 0),
+            height INTEGER NOT NULL CHECK (height > 0),
+            monitor_index INTEGER,
+            window_title TEXT,
+            captured_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL
+        );
+    """),
 )
 
 

@@ -5,4 +5,5 @@ __pycache__/
 data/*.sqlite3
 data/settings.json
 data/documents/
+data/captures/
 logs/*.log

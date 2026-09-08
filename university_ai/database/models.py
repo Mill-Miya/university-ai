@@ -31,6 +31,12 @@ class ExtractionStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class CaptureType(StrEnum):
+    FULL_SCREEN = "FULL_SCREEN"
+    ACTIVE_WINDOW = "ACTIVE_WINDOW"
+    REGION = "REGION"
+
+
 @dataclass(frozen=True)
 class Course:
     id: int | None
@@ -108,4 +114,17 @@ class Document:
     extraction_status: ExtractionStatus = ExtractionStatus.PENDING
     extracted_text: str | None = None
     extraction_error: str | None = None
+    metadata_json: str = "{}"
+
+
+@dataclass(frozen=True)
+class ScreenCapture:
+    id: int | None
+    capture_type: CaptureType
+    stored_path: str
+    width: int
+    height: int
+    captured_at: datetime
+    monitor_index: int | None = None
+    window_title: str | None = None
     metadata_json: str = "{}"

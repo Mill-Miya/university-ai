@@ -16,8 +16,10 @@ from university_ai.database.database import Database
 from university_ai.database.migrations import migrate
 from university_ai.database.repository import (
     AssignmentRepository, CourseRepository, DocumentRepository, ExamRepository, NotificationEventRepository,
-    ScheduleOverrideRepository,
+    ScheduleOverrideRepository, ScreenCaptureRepository,
 )
+from university_ai.capture.backend import QtScreenCaptureBackend
+from university_ai.capture.service import CaptureStorageService, ScreenCaptureService
 from university_ai.documents.import_service import DocumentImportService
 from university_ai.notification.fallback import FallbackOnErrorAdapter, TrayFallbackAdapter
 from university_ai.notification.registration import WindowsToastRegistration
@@ -27,6 +29,7 @@ from university_ai.ui.presenter import UniversityPresenter
 from university_ai.ui.documents import DocumentPresenter, DocumentsDialog
 from university_ai.ui.settings import SettingsDialog
 from university_ai.ui.tray import SystemTrayController
+from university_ai.ui.capture import ScreenCaptureController
 
 
 def configure_logging(config: AppConfig) -> None:
@@ -61,6 +64,7 @@ def build_resident_application(config: AppConfig):
     connection = database.connect(); migrate(connection)
     courses = CourseRepository(connection); assignments = AssignmentRepository(connection); exams = ExamRepository(connection)
     overrides = ScheduleOverrideRepository(connection); events = NotificationEventRepository(connection); documents = DocumentRepository(connection)
+    captures = ScreenCaptureRepository(connection)
     settings = SettingsStore(config.settings_path); startup = WindowsStartupAdapter()
     toast_registration = WindowsToastRegistration(project_root=config.data_dir.parent)
     if not toast_registration.register():
@@ -80,6 +84,14 @@ def build_resident_application(config: AppConfig):
         lambda: lifecycle_holder["lifecycle"].stop() or app.quit(),
         lambda: DocumentsDialog(document_presenter),
     )
+    capture_service = ScreenCaptureService(
+        QtScreenCaptureBackend(), captures, CaptureStorageService(config.data_dir / "captures")
+    )
+    tray.set_capture_controller(ScreenCaptureController(
+        capture_service,
+        on_success=lambda body: tray.show_message("画面キャプチャ", body),
+        on_failure=lambda body: tray.show_message("画面キャプチャ", body),
+    ))
     adapter = FallbackOnErrorAdapter(
         WindowsToastAdapter(registration=toast_registration),
         TrayFallbackAdapter(tray.show_message),

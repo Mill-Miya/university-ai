@@ -24,6 +24,8 @@ class SystemTrayController:
         self._logger = logging.getLogger(__name__)
         self._tray: QSystemTrayIcon | None = None
         self._menu: QMenu | None = None
+        self._capture_menu: QMenu | None = None
+        self._capture_controller = None
         self._system_tray_available = system_tray_available
         self._application_provider = application_provider
         self._tray_factory = tray_factory
@@ -51,6 +53,11 @@ class SystemTrayController:
         self._menu.addAction("試験", lambda: self._show("試験", self._presenter.exams()))
         if self._documents_factory is not None:
             self._menu.addAction("資料", self._open_documents)
+        if self._capture_controller is not None:
+            self._capture_menu = self._menu.addMenu("画面キャプチャ")
+            self._capture_menu.addAction("全画面", self._capture_controller.capture_full_screen)
+            self._capture_menu.addAction("アクティブウィンドウ", self._capture_controller.capture_active_window)
+            self._capture_menu.addAction("範囲選択", self._capture_controller.select_region)
         self._menu.addAction("設定", self._open_settings)
         self._menu.addSeparator()
         self._menu.addAction("終了", self._on_quit)
@@ -69,7 +76,14 @@ class SystemTrayController:
         if self._tray is not None:
             self._tray.hide()
         self._menu = None
+        self._capture_menu = None
         self._tray = None
+
+    def set_capture_controller(self, controller) -> None:
+        """Must be called before start so the tray can build the explicit capture menu."""
+        if self._menu is not None:
+            raise RuntimeError("capture controller must be configured before tray start")
+        self._capture_controller = controller
 
     def _show(self, title: str, lines: list[str]) -> None:
         QMessageBox.information(None, title, "\n".join(lines) if lines else "該当する項目はありません。")

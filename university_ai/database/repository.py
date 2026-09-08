@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from university_ai.database.models import (
-    Assignment, AssignmentStatus, Course, Document, Exam, ExtractionStatus, NotificationEvent, NotificationStatus,
-    OverrideType, ScheduleOverride,
+    Assignment, AssignmentStatus, CaptureType, Course, Document, Exam, ExtractionStatus, NotificationEvent,
+    NotificationStatus, OverrideType, ScheduleOverride, ScreenCapture,
 )
 
 
@@ -70,6 +70,17 @@ def _validate_document(document: Document) -> None:
     json.loads(document.metadata_json)
     _utc_text(document.imported_at)
     _utc_text(document.modified_at)
+
+
+def _validate_capture(capture: ScreenCapture) -> None:
+    if not capture.stored_path:
+        raise ValueError("capture stored_path is required")
+    if capture.width <= 0 or capture.height <= 0:
+        raise ValueError("capture dimensions must be positive")
+    if capture.monitor_index is not None and capture.monitor_index < 0:
+        raise ValueError("monitor_index must not be negative")
+    json.loads(capture.metadata_json)
+    _utc_text(capture.captured_at)
 
 
 class CourseRepository:
@@ -352,6 +363,36 @@ class DocumentRepository:
         return cursor.rowcount == 1
 
 
+class ScreenCaptureRepository:
+    """Metadata repository. File deletion is intentionally owned by CaptureStorageService."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._db = connection
+
+    def create(self, capture: ScreenCapture) -> ScreenCapture:
+        _validate_capture(capture)
+        cursor = self._db.execute(
+            """INSERT INTO screen_captures(capture_type,stored_path,width,height,monitor_index,window_title,captured_at,metadata_json)
+            VALUES (?,?,?,?,?,?,?,?)""",
+            (capture.capture_type.value, capture.stored_path, capture.width, capture.height, capture.monitor_index,
+             capture.window_title, _utc_text(capture.captured_at), capture.metadata_json),
+        )
+        self._db.commit()
+        return replace(capture, id=cursor.lastrowid)
+
+    def get(self, capture_id: int) -> ScreenCapture | None:
+        row = self._db.execute("SELECT * FROM screen_captures WHERE id=?", (capture_id,)).fetchone()
+        return _screen_capture(row) if row else None
+
+    def list(self) -> list[ScreenCapture]:
+        return [_screen_capture(row) for row in self._db.execute("SELECT * FROM screen_captures ORDER BY captured_at DESC")]
+
+    def delete_metadata(self, capture_id: int) -> bool:
+        cursor = self._db.execute("DELETE FROM screen_captures WHERE id=?", (capture_id,))
+        self._db.commit()
+        return cursor.rowcount == 1
+
+
 def _course(row: sqlite3.Row) -> Course:
     return Course(**dict(row))
 
@@ -391,3 +432,10 @@ def _document(row: sqlite3.Row) -> Document:
     values["modified_at"] = _as_utc(values["modified_at"])
     values["extraction_status"] = ExtractionStatus(values["extraction_status"])
     return Document(**values)
+
+
+def _screen_capture(row: sqlite3.Row) -> ScreenCapture:
+    values = dict(row)
+    values["capture_type"] = CaptureType(values["capture_type"])
+    values["captured_at"] = _as_utc(values["captured_at"])
+    return ScreenCapture(**values)
