@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from university_ai.capture.backend import CaptureBackendError, CaptureRectangle, CapturedFrame
+from university_ai.capture.backend import CaptureBackendError, CaptureRectangle, CapturedFrame, Win32WindowResolver
 from university_ai.capture.service import CaptureStorageService, ScreenCaptureService
 from university_ai.database.database import Database
 from university_ai.database.migrations import migrate
@@ -34,8 +34,9 @@ class FakeBackend:
     def capture_full_screen(self):
         self.calls.append("full")
         return CapturedFrame(FakeImage(), CaptureType.FULL_SCREEN, 0, metadata_json=json.dumps({"source": "fake"}))
-    def capture_active_window(self):
-        self.calls.append("active")
+    def snapshot_active_window(self): return 12
+    def capture_active_window(self, preferred_hwnd=None):
+        self.calls.append(("active", preferred_hwnd))
         return CapturedFrame(FakeImage(100, 50), CaptureType.ACTIVE_WINDOW, 0, "Window", json.dumps({"hwnd": 12}))
     def capture_region(self, region):
         self.calls.append(region)
@@ -59,7 +60,7 @@ def test_full_active_and_region_capture_persist_png(capture_services):
     active = service.capture_active_window().capture
     region = service.capture_region(CaptureRectangle(10, 20, 30, 40)).capture
 
-    assert backend.calls == ["full", "active", CaptureRectangle(10, 20, 30, 40)]
+    assert backend.calls == ["full", ("active", None), CaptureRectangle(10, 20, 30, 40)]
     assert [item.capture_type for item in repository.list()] == [CaptureType.REGION, CaptureType.ACTIVE_WINDOW, CaptureType.FULL_SCREEN]
     assert active.window_title == "Window" and region.width == 30 and region.height == 40
     assert Path(full.stored_path).suffix == ".png"
@@ -133,7 +134,8 @@ def test_capture_controller_reports_success_failure_and_cancel():
 
     class Service:
         def capture_full_screen(self): return type("Result", (), {"capture": type("Capture", (), {"stored_path": "ok.png"})()})()
-        def capture_active_window(self): raise RuntimeError("no window")
+        def snapshot_active_window(self): return None
+        def capture_active_window(self, _preferred=None): raise RuntimeError("no window")
         def capture_region(self, _region): raise AssertionError("cancel must not capture")
     class Overlay:
         def __init__(self, selected, cancelled): self.selected, self.cancelled = selected, cancelled; self.shown = False
@@ -144,9 +146,49 @@ def test_capture_controller_reports_success_failure_and_cancel():
     holder = {}
     def factory(selected, cancelled):
         holder["overlay"] = Overlay(selected, cancelled); return holder["overlay"]
-    controller = ScreenCaptureController(Service(), overlay_factory=factory, on_success=successes.append, on_failure=failures.append)
+    controller = ScreenCaptureController(Service(), overlay_factory=factory, on_success=successes.append,
+                                         on_failure=failures.append, defer=lambda callback: callback())
     controller.capture_full_screen(); controller.capture_active_window(); controller.select_region(); holder["overlay"].cancelled()
     assert successes == ["保存しました: ok.png"] and failures == ["画面キャプチャを保存できませんでした。"]
+
+
+def test_active_capture_is_queued_and_uses_pre_menu_target():
+    deferred, calls = [], []
+
+    class Service:
+        def snapshot_active_window(self): return 88
+        def capture_active_window(self, preferred):
+            calls.append(preferred)
+            return type("Result", (), {"capture": type("Capture", (), {"stored_path": "target.png"})()})()
+
+    controller = ScreenCaptureController(Service(), defer=deferred.append)
+    controller.prepare_active_window_target()
+    controller.capture_active_window()
+    assert calls == []  # QAction callback cannot synchronously read the Tray foreground.
+    deferred.pop()()
+    assert calls == [88]
+
+
+def test_window_resolver_excludes_invalid_own_and_shell_windows():
+    class Api:
+        def __init__(self, hwnd, *, visible=True, iconic=False, pid=2, window_class="Chrome_WidgetWin_1"):
+            self.hwnd, self.visible, self.iconic, self.pid, self.window_class = hwnd, visible, iconic, pid, window_class
+        def foreground_window(self): return self.hwnd
+        def is_window(self, hwnd): return hwnd == self.hwnd and hwnd != 0
+        def is_visible(self, _): return self.visible
+        def is_iconic(self, _): return self.iconic
+        def window_process_id(self, _): return 1, self.pid
+        def class_name(self, _): return self.window_class
+        def window_title(self, _): return "Target"
+        def window_rect(self, _): return 10, 20, 300, 400
+
+    assert Win32WindowResolver(api=Api(0), current_pid=1).snapshot_foreground() is None
+    assert Win32WindowResolver(api=Api(10, pid=1), current_pid=1).snapshot_foreground() is None
+    assert Win32WindowResolver(api=Api(10, window_class="Shell_TrayWnd"), current_pid=1).snapshot_foreground() is None
+    assert Win32WindowResolver(api=Api(10, visible=False), current_pid=1).snapshot_foreground() is None
+    assert Win32WindowResolver(api=Api(10, iconic=True), current_pid=1).snapshot_foreground() is None
+    target = Win32WindowResolver(api=Api(10), current_pid=1).resolve()
+    assert (target.hwnd, target.title, target.rectangle_physical) == (10, "Target", (10, 20, 300, 400))
 
 
 def test_tray_wires_capture_submenu_without_real_screen():

@@ -76,6 +76,8 @@ class CaptureSelectionOverlay(QWidget):
 class ScreenCaptureController:
     """UI coordinator. Backend and storage are only reached from explicit actions."""
 
+    _ACTIVE_CAPTURE_SETTLE_MS = 500
+
     def __init__(
         self,
         service,
@@ -83,19 +85,34 @@ class ScreenCaptureController:
         overlay_factory: Callable[[Callable[[CaptureRectangle], None], Callable[[], None]], object] = CaptureSelectionOverlay,
         on_success: Callable[[str], None] | None = None,
         on_failure: Callable[[str], None] | None = None,
+        defer: Callable[[Callable[[], None]], None] | None = None,
     ) -> None:
         self._service = service
         self._overlay_factory = overlay_factory
         self._on_success = on_success or (lambda _message: None)
         self._on_failure = on_failure or (lambda _message: None)
         self._overlay = None
+        self._active_window_hint: int | None = None
+        self._defer = defer or (lambda callback: QTimer.singleShot(self._ACTIVE_CAPTURE_SETTLE_MS, callback))
         self._logger = logging.getLogger(__name__)
 
     def capture_full_screen(self) -> None:
         self._run(self._service.capture_full_screen)
 
     def capture_active_window(self) -> None:
-        self._run(self._service.capture_active_window)
+        hint, self._active_window_hint = self._active_window_hint, None
+        # QAction is emitted while the Tray menu owns focus. The bounded settle
+        # wait lets Windows repaint the remembered external window; it is not
+        # the target-selection mechanism. The backend revalidates that HWND.
+        self._defer(lambda: self._run(lambda: self._service.capture_active_window(hint)))
+
+    def prepare_active_window_target(self) -> None:
+        """Remember the last valid external window while the capture menu opens."""
+        try:
+            self._active_window_hint = self._service.snapshot_active_window()
+        except Exception:
+            self._active_window_hint = None
+            self._logger.warning("No valid active-window capture target was available")
 
     def select_region(self) -> None:
         if self._overlay is not None:

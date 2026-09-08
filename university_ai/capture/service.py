@@ -62,8 +62,11 @@ class ScreenCaptureService:
     def capture_full_screen(self) -> CaptureResult:
         return self._capture(self._backend.capture_full_screen())
 
-    def capture_active_window(self) -> CaptureResult:
-        return self._capture(self._backend.capture_active_window())
+    def snapshot_active_window(self) -> int | None:
+        return self._backend.snapshot_active_window()
+
+    def capture_active_window(self, preferred_hwnd: int | None = None) -> CaptureResult:
+        return self._capture(self._backend.capture_active_window(preferred_hwnd))
 
     def capture_region(self, rectangle: CaptureRectangle) -> CaptureResult:
         rectangle.validate()
