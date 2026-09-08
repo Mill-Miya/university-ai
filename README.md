@@ -2,6 +2,8 @@
 
 Windows上で常駐し、授業・課題・試験をローカルに管理して決定的な期限通知を行うアプリです。MVP 1はLLMやクラウドサービスを使いません。
 
+MVP 1 は `v0.4.2` として完成・固定済みです。現在は MVP 2 Phase 1 として、PDF / TXT / DOCX / 画像をローカルへ取り込む基盤を追加しています。LLM、OCR、RAG、外部通信は含みません。
+
 ## 対応環境
 
 - Windows 11
@@ -31,6 +33,7 @@ python -m university_ai.app.main
 - `data/university_ai.sqlite3`: SQLiteデータベース
 - `data/settings.json`: 通知・Startup設定
 - `logs/university_ai.log`: ローカルログ
+- `data/documents/`: 取り込んだ資料の管理コピー
 
 ## 機能
 
@@ -40,6 +43,7 @@ python -m university_ai.app.main
 - NotificationEventの永続化とSQLite UNIQUE制約による重複抑止
 - Windows Toast。初回起動時にユーザー単位のStartメニューショートカットへ AUMID を登録し、利用不可・送信失敗時はTray通知へフォールバック
 - Windows Startupフォルダを利用した、ユーザー単位のログオン時自動起動
+- Trayの「資料」からの PDF / TXT / DOCX / PNG / JPG / JPEG のローカル取り込みと、対応文書の本文抽出
 
 Startupは設定画面で有効化します。現在のPython実行環境とプロジェクト作業ディレクトリを参照するため、プロジェクトの移動や仮想環境の削除後は設定を無効化してから再設定してください。
 

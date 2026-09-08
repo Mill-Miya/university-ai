@@ -15,13 +15,16 @@ from university_ai.core.scheduler import UniversityScheduler
 from university_ai.database.database import Database
 from university_ai.database.migrations import migrate
 from university_ai.database.repository import (
-    AssignmentRepository, CourseRepository, ExamRepository, NotificationEventRepository, ScheduleOverrideRepository,
+    AssignmentRepository, CourseRepository, DocumentRepository, ExamRepository, NotificationEventRepository,
+    ScheduleOverrideRepository,
 )
+from university_ai.documents.import_service import DocumentImportService
 from university_ai.notification.fallback import FallbackOnErrorAdapter, TrayFallbackAdapter
 from university_ai.notification.registration import WindowsToastRegistration
 from university_ai.notification.service import NotificationService
 from university_ai.notification.windows import WindowsToastAdapter
 from university_ai.ui.presenter import UniversityPresenter
+from university_ai.ui.documents import DocumentPresenter, DocumentsDialog
 from university_ai.ui.settings import SettingsDialog
 from university_ai.ui.tray import SystemTrayController
 
@@ -57,7 +60,7 @@ def build_resident_application(config: AppConfig):
     database = Database(config.database_path)
     connection = database.connect(); migrate(connection)
     courses = CourseRepository(connection); assignments = AssignmentRepository(connection); exams = ExamRepository(connection)
-    overrides = ScheduleOverrideRepository(connection); events = NotificationEventRepository(connection)
+    overrides = ScheduleOverrideRepository(connection); events = NotificationEventRepository(connection); documents = DocumentRepository(connection)
     settings = SettingsStore(config.settings_path); startup = WindowsStartupAdapter()
     toast_registration = WindowsToastRegistration(project_root=config.data_dir.parent)
     if not toast_registration.register():
@@ -70,8 +73,12 @@ def build_resident_application(config: AppConfig):
     configure_resident_qt_application(app)
     lifecycle_holder = {}
     presenter = UniversityPresenter(context, courses)
+    document_presenter = DocumentPresenter(documents, DocumentImportService(documents, config.data_dir / "documents"))
     tray = SystemTrayController(
-        presenter, lambda: SettingsDialog(settings, startup), lambda: lifecycle_holder["lifecycle"].stop() or app.quit()
+        presenter,
+        lambda: SettingsDialog(settings, startup),
+        lambda: lifecycle_holder["lifecycle"].stop() or app.quit(),
+        lambda: DocumentsDialog(document_presenter),
     )
     adapter = FallbackOnErrorAdapter(
         WindowsToastAdapter(registration=toast_registration),

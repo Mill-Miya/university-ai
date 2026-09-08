@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from university_ai.database.models import (
-    Assignment, AssignmentStatus, Course, Exam, NotificationEvent, NotificationStatus, OverrideType, ScheduleOverride,
+    Assignment, AssignmentStatus, Course, Document, Exam, ExtractionStatus, NotificationEvent, NotificationStatus,
+    OverrideType, ScheduleOverride,
 )
 
 
@@ -52,6 +54,22 @@ def _validate_override(override: ScheduleOverride) -> None:
         _validate_time(override.end_time)
         if override.start_time >= override.end_time:
             raise ValueError("end_time must be later than start_time")
+
+
+def _validate_document(document: Document) -> None:
+    if not document.title.strip():
+        raise ValueError("document title is required")
+    if document.file_type not in {"PDF", "TXT", "DOCX", "PNG", "JPG", "JPEG"}:
+        raise ValueError("unsupported document file_type")
+    if len(document.sha256) != 64 or any(character not in "0123456789abcdef" for character in document.sha256.lower()):
+        raise ValueError("document sha256 must be a 64-character hexadecimal digest")
+    if document.size_bytes < 0:
+        raise ValueError("document size_bytes must not be negative")
+    if not document.source_path or not document.stored_path:
+        raise ValueError("document paths are required")
+    json.loads(document.metadata_json)
+    _utc_text(document.imported_at)
+    _utc_text(document.modified_at)
 
 
 class CourseRepository:
@@ -275,6 +293,65 @@ class NotificationEventRepository:
         return updated
 
 
+class DocumentRepository:
+    """SQLite source of truth for imported files and their local extraction state."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._db = connection
+
+    def create(self, document: Document) -> Document:
+        _validate_document(document)
+        cursor = self._db.execute(
+            """INSERT INTO documents(title,source_path,stored_path,file_type,mime_type,size_bytes,sha256,
+            imported_at,modified_at,extraction_status,extracted_text,extraction_error,metadata_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (document.title, document.source_path, document.stored_path, document.file_type, document.mime_type,
+             document.size_bytes, document.sha256, _utc_text(document.imported_at), _utc_text(document.modified_at),
+             document.extraction_status.value, document.extracted_text, document.extraction_error, document.metadata_json),
+        )
+        self._db.commit()
+        return replace(document, id=cursor.lastrowid)
+
+    def get(self, document_id: int) -> Document | None:
+        row = self._db.execute("SELECT * FROM documents WHERE id=?", (document_id,)).fetchone()
+        return _document(row) if row else None
+
+    def get_by_sha256(self, sha256: str) -> Document | None:
+        row = self._db.execute("SELECT * FROM documents WHERE sha256=?", (sha256,)).fetchone()
+        return _document(row) if row else None
+
+    def list(self) -> list[Document]:
+        return [_document(row) for row in self._db.execute("SELECT * FROM documents ORDER BY imported_at DESC")]
+
+    def update_extraction(
+        self,
+        document_id: int,
+        status: ExtractionStatus,
+        *,
+        extracted_text: str | None = None,
+        extraction_error: str | None = None,
+    ) -> Document:
+        if status is ExtractionStatus.EXTRACTED and extraction_error is not None:
+            raise ValueError("extracted document must not contain an extraction error")
+        if status is ExtractionStatus.FAILED and not extraction_error:
+            raise ValueError("failed document requires an extraction error")
+        cursor = self._db.execute(
+            "UPDATE documents SET extraction_status=?, extracted_text=?, extraction_error=? WHERE id=?",
+            (status.value, extracted_text, extraction_error, document_id),
+        )
+        self._db.commit()
+        if cursor.rowcount != 1:
+            raise KeyError(f"document {document_id} not found")
+        updated = self.get(document_id)
+        assert updated is not None
+        return updated
+
+    def delete(self, document_id: int) -> bool:
+        cursor = self._db.execute("DELETE FROM documents WHERE id=?", (document_id,))
+        self._db.commit()
+        return cursor.rowcount == 1
+
+
 def _course(row: sqlite3.Row) -> Course:
     return Course(**dict(row))
 
@@ -306,3 +383,11 @@ def _notification_event(row: sqlite3.Row) -> NotificationEvent:
     values["delivered_at"] = _as_utc(values["delivered_at"]) if values["delivered_at"] else None
     values["status"] = NotificationStatus(values["status"])
     return NotificationEvent(**values)
+
+
+def _document(row: sqlite3.Row) -> Document:
+    values = dict(row)
+    values["imported_at"] = _as_utc(values["imported_at"])
+    values["modified_at"] = _as_utc(values["modified_at"])
+    values["extraction_status"] = ExtractionStatus(values["extraction_status"])
+    return Document(**values)

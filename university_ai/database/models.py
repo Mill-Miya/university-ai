@@ -25,6 +25,12 @@ class NotificationStatus(StrEnum):
     SUPPRESSED = "SUPPRESSED"
 
 
+class ExtractionStatus(StrEnum):
+    PENDING = "PENDING"
+    EXTRACTED = "EXTRACTED"
+    FAILED = "FAILED"
+
+
 @dataclass(frozen=True)
 class Course:
     id: int | None
@@ -85,3 +91,21 @@ class NotificationEvent:
     scheduled_at: datetime
     status: NotificationStatus = NotificationStatus.PENDING
     delivered_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class Document:
+    id: int | None
+    title: str
+    source_path: str
+    stored_path: str
+    file_type: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    imported_at: datetime
+    modified_at: datetime
+    extraction_status: ExtractionStatus = ExtractionStatus.PENDING
+    extracted_text: str | None = None
+    extraction_error: str | None = None
+    metadata_json: str = "{}"

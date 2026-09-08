@@ -3,5 +3,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 data/*.sqlite3
+data/settings.json
+data/documents/
 logs/*.log
-

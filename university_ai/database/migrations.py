@@ -50,6 +50,24 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
             UNIQUE(rule_key, subject_type, subject_id, scheduled_at)
         );
     """),
+    (3, """
+        CREATE TABLE documents (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            stored_path TEXT NOT NULL UNIQUE,
+            file_type TEXT NOT NULL CHECK (file_type IN ('PDF','TXT','DOCX','PNG','JPG','JPEG')),
+            mime_type TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+            sha256 TEXT NOT NULL UNIQUE,
+            imported_at TEXT NOT NULL,
+            modified_at TEXT NOT NULL,
+            extraction_status TEXT NOT NULL CHECK (extraction_status IN ('PENDING','EXTRACTED','FAILED')),
+            extracted_text TEXT,
+            extraction_error TEXT,
+            metadata_json TEXT NOT NULL
+        );
+    """),
 )
 
 

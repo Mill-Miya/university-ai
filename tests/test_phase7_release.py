@@ -47,14 +47,17 @@ def test_tray_retains_context_menu_for_resident_lifetime():
         def __init__(self): self.actions = []
         def addAction(self, *args): self.actions.append(args)
         def addSeparator(self): self.actions.append(("separator",))
+    class Documents:
+        def exec(self): pass
 
     controller = SystemTrayController(
         None, lambda: None, lambda: None, system_tray_available=lambda: True,
         application_provider=lambda: Application(), tray_factory=Tray, menu_factory=Menu,
+        documents_factory=Documents,
     )
     assert controller.start()
     assert controller._menu is controller._tray.menu
-    assert len(controller._menu.actions) == 7
+    assert len(controller._menu.actions) == 8
     controller.stop()
     assert controller._menu is None and controller._tray is None
 

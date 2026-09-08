@@ -49,7 +49,7 @@ def test_migration_adds_notification_events_to_existing_v1_database(tmp_path):
     connection.execute("INSERT INTO schema_version(version) VALUES (1)")
     connection.commit()
     migrate(connection)
-    assert connection.execute("SELECT version FROM schema_version").fetchone()[0] == 2
+    assert connection.execute("SELECT version FROM schema_version").fetchone()[0] == 3
     assert connection.execute("SELECT name FROM sqlite_master WHERE name='notification_events'").fetchone() is not None
     migrate(connection)
     database.stop()

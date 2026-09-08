@@ -11,6 +11,7 @@ from university_ai.ui.presenter import UniversityPresenter
 class SystemTrayController:
     def __init__(
         self, presenter: UniversityPresenter, settings_factory, on_quit,
+        documents_factory: Callable[[], object] | None = None,
         *, system_tray_available: Callable[[], bool] = QSystemTrayIcon.isSystemTrayAvailable,
         application_provider: Callable[[], QApplication | None] = QApplication.instance,
         tray_factory=QSystemTrayIcon,
@@ -19,6 +20,7 @@ class SystemTrayController:
         self._presenter = presenter
         self._settings_factory = settings_factory
         self._on_quit = on_quit
+        self._documents_factory = documents_factory
         self._logger = logging.getLogger(__name__)
         self._tray: QSystemTrayIcon | None = None
         self._menu: QMenu | None = None
@@ -47,6 +49,8 @@ class SystemTrayController:
         self._menu.addAction("今日の予定", lambda: self._show("今日の予定", self._presenter.today_courses()))
         self._menu.addAction("課題", lambda: self._show("未完了課題", self._presenter.assignments()))
         self._menu.addAction("試験", lambda: self._show("試験", self._presenter.exams()))
+        if self._documents_factory is not None:
+            self._menu.addAction("資料", self._open_documents)
         self._menu.addAction("設定", self._open_settings)
         self._menu.addSeparator()
         self._menu.addAction("終了", self._on_quit)
@@ -72,3 +76,7 @@ class SystemTrayController:
 
     def _open_settings(self) -> None:
         self._settings_factory().exec()
+
+    def _open_documents(self) -> None:
+        assert self._documents_factory is not None
+        self._documents_factory().exec()
