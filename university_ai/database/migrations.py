@@ -38,6 +38,18 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         CREATE UNIQUE INDEX schedule_overrides_course_date_type
             ON schedule_overrides(course_id, date, type);
     """),
+    (2, """
+        CREATE TABLE notification_events (
+            id INTEGER PRIMARY KEY,
+            rule_key TEXT NOT NULL,
+            subject_type TEXT NOT NULL,
+            subject_id INTEGER NOT NULL,
+            scheduled_at TEXT NOT NULL,
+            delivered_at TEXT,
+            status TEXT NOT NULL CHECK (status IN ('PENDING','DELIVERED','FAILED','SUPPRESSED')),
+            UNIQUE(rule_key, subject_type, subject_id, scheduled_at)
+        );
+    """),
 )
 
 
@@ -58,4 +70,3 @@ def migrate(connection: sqlite3.Connection) -> None:
         except Exception:
             connection.rollback()
             raise
-

@@ -5,7 +5,9 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from university_ai.database.models import Assignment, AssignmentStatus, Course, Exam, OverrideType, ScheduleOverride
+from university_ai.database.models import (
+    Assignment, AssignmentStatus, Course, Exam, NotificationEvent, NotificationStatus, OverrideType, ScheduleOverride,
+)
 
 
 def _utc_text(value: datetime) -> str:
@@ -214,6 +216,65 @@ class ScheduleOverrideRepository:
         return cursor.rowcount == 1
 
 
+class NotificationEventRepository:
+    """Persistent event identity and delivery state; the UNIQUE key performs deduplication."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._db = connection
+
+    def create(self, event: NotificationEvent) -> NotificationEvent:
+        cursor = self._db.execute(
+            """INSERT INTO notification_events(rule_key,subject_type,subject_id,scheduled_at,delivered_at,status)
+            VALUES (?,?,?,?,?,?)""",
+            (event.rule_key, event.subject_type, event.subject_id, _utc_text(event.scheduled_at),
+             _utc_text(event.delivered_at) if event.delivered_at else None, event.status.value),
+        )
+        self._db.commit()
+        return replace(event, id=cursor.lastrowid)
+
+    def create_if_absent(self, event: NotificationEvent) -> tuple[NotificationEvent, bool]:
+        try:
+            return self.create(event), True
+        except sqlite3.IntegrityError:
+            existing = self.get_by_identity(event.rule_key, event.subject_type, event.subject_id, event.scheduled_at)
+            if existing is None:
+                raise
+            return existing, False
+
+    def get(self, event_id: int) -> NotificationEvent | None:
+        row = self._db.execute("SELECT * FROM notification_events WHERE id=?", (event_id,)).fetchone()
+        return _notification_event(row) if row else None
+
+    def get_by_identity(
+        self, rule_key: str, subject_type: str, subject_id: int, scheduled_at: datetime
+    ) -> NotificationEvent | None:
+        row = self._db.execute(
+            """SELECT * FROM notification_events
+            WHERE rule_key=? AND subject_type=? AND subject_id=? AND scheduled_at=?""",
+            (rule_key, subject_type, subject_id, _utc_text(scheduled_at)),
+        ).fetchone()
+        return _notification_event(row) if row else None
+
+    def list(self) -> list[NotificationEvent]:
+        return [_notification_event(row) for row in self._db.execute("SELECT * FROM notification_events ORDER BY scheduled_at")]
+
+    def update_status(
+        self, event_id: int, status: NotificationStatus, *, delivered_at: datetime | None = None
+    ) -> NotificationEvent:
+        if status is NotificationStatus.DELIVERED and delivered_at is None:
+            raise ValueError("delivered_at is required for DELIVERED")
+        cursor = self._db.execute(
+            "UPDATE notification_events SET status=?, delivered_at=? WHERE id=?",
+            (status.value, _utc_text(delivered_at) if delivered_at else None, event_id),
+        )
+        self._db.commit()
+        if cursor.rowcount != 1:
+            raise KeyError(f"notification event {event_id} not found")
+        updated = self.get(event_id)
+        assert updated is not None
+        return updated
+
+
 def _course(row: sqlite3.Row) -> Course:
     return Course(**dict(row))
 
@@ -237,3 +298,11 @@ def _override(row: sqlite3.Row) -> ScheduleOverride:
     values = dict(row)
     values["type"] = OverrideType(values["type"])
     return ScheduleOverride(**values)
+
+
+def _notification_event(row: sqlite3.Row) -> NotificationEvent:
+    values = dict(row)
+    values["scheduled_at"] = _as_utc(values["scheduled_at"])
+    values["delivered_at"] = _as_utc(values["delivered_at"]) if values["delivered_at"] else None
+    values["status"] = NotificationStatus(values["status"])
+    return NotificationEvent(**values)

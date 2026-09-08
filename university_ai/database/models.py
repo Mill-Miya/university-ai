@@ -18,6 +18,13 @@ class OverrideType(StrEnum):
     CHANGE = "CHANGE"
 
 
+class NotificationStatus(StrEnum):
+    PENDING = "PENDING"
+    DELIVERED = "DELIVERED"
+    FAILED = "FAILED"
+    SUPPRESSED = "SUPPRESSED"
+
+
 @dataclass(frozen=True)
 class Course:
     id: int | None
@@ -68,3 +75,13 @@ class ScheduleOverride:
     classroom: str | None = None
     notes: str | None = None
 
+
+@dataclass(frozen=True)
+class NotificationEvent:
+    id: int | None
+    rule_key: str
+    subject_type: str
+    subject_id: int
+    scheduled_at: datetime
+    status: NotificationStatus = NotificationStatus.PENDING
+    delivered_at: datetime | None = None
