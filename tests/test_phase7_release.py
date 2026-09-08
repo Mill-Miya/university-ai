@@ -5,6 +5,7 @@ from university_ai.app import main as main_module
 from university_ai.app.lifecycle import ApplicationLifecycle
 from university_ai.core.rules import NotificationCandidate
 from university_ai.notification.windows import WindowsToastAdapter
+from university_ai.ui.tray import SystemTrayController
 
 
 def test_lifecycle_stops_in_reverse_order_and_continues_after_failure():
@@ -28,6 +29,33 @@ def test_resident_qt_application_does_not_quit_when_last_dialog_closes():
     application = FakeApplication()
     main_module.configure_resident_qt_application(application)
     assert application.quit_on_last_window_closed is False
+
+
+def test_tray_retains_context_menu_for_resident_lifetime():
+    class Style:
+        def standardIcon(self, _): return "icon"
+    class Application:
+        def style(self): return Style()
+    class Tray:
+        def __init__(self, icon, parent): self.menu = None; self.visible = False
+        def setContextMenu(self, menu): self.menu = menu
+        def show(self): self.visible = True
+        def isVisible(self): return self.visible
+        def hide(self): self.visible = False
+    class Menu:
+        def __init__(self): self.actions = []
+        def addAction(self, *args): self.actions.append(args)
+        def addSeparator(self): self.actions.append(("separator",))
+
+    controller = SystemTrayController(
+        None, lambda: None, lambda: None, system_tray_available=lambda: True,
+        application_provider=lambda: Application(), tray_factory=Tray, menu_factory=Menu,
+    )
+    assert controller.start()
+    assert controller._menu is controller._tray.menu
+    assert len(controller._menu.actions) == 7
+    controller.stop()
+    assert controller._menu is None and controller._tray is None
 
 
 def test_main_releases_lifecycle_when_tray_is_unavailable(monkeypatch, tmp_path):
