@@ -5,6 +5,7 @@ from university_ai.app import main as main_module
 from university_ai.app.lifecycle import ApplicationLifecycle
 from university_ai.core.rules import NotificationCandidate
 from university_ai.notification.windows import WindowsToastAdapter
+from university_ai.notification.registration import APP_USER_MODEL_ID, WindowsToastRegistration
 from university_ai.ui.tray import SystemTrayController
 
 
@@ -85,6 +86,9 @@ def test_windows_toast_uses_winrt_identifier_factory(monkeypatch):
         def __init__(self, document): calls.append(("notification", document))
 
     class Notifier:
+        class Setting:
+            name = "ENABLED"
+        setting = Setting()
         def show(self, notification): calls.append(("show", notification))
 
     class Manager:
@@ -98,5 +102,102 @@ def test_windows_toast_uses_winrt_identifier_factory(monkeypatch):
     monkeypatch.setitem(sys.modules, "winrt.windows.data.xml.dom", dom)
     monkeypatch.setitem(sys.modules, "winrt.windows.ui.notifications", notifications)
     candidate = NotificationCandidate("x", "x", 1, __import__("datetime").datetime.now(__import__("datetime").UTC), "<Title>", "Body")
-    WindowsToastAdapter(app_id="UniversityAI").send(candidate)
-    assert ("app_id", "UniversityAI") in calls and any(item[0] == "show" for item in calls)
+    class Registration:
+        def register(self): return True
+
+    WindowsToastAdapter(app_id=APP_USER_MODEL_ID, registration=Registration()).send(candidate)
+    assert ("app_id", APP_USER_MODEL_ID) in calls and any(item[0] == "show" for item in calls)
+
+
+def test_windows_toast_registration_creates_one_stable_shortcut(tmp_path):
+    writes = []
+    applied = []
+
+    def write_shortcut(path, app_id, executable, project_root, arguments):
+        writes.append((path, app_id, executable, project_root, arguments))
+        path.touch()
+
+    registration = WindowsToastRegistration(
+        shortcut_directory=tmp_path,
+        project_root=tmp_path,
+        executable=tmp_path / "python.exe",
+        shortcut_writer=write_shortcut,
+        process_identity_setter=applied.append,
+    )
+    assert registration.register()
+    assert registration.register()
+    assert registration.shortcut_path == tmp_path / "University AI.lnk"
+    assert registration.registered()
+    assert writes == [(tmp_path / "University AI.lnk", APP_USER_MODEL_ID, tmp_path / "python.exe", tmp_path, "-m university_ai.app.main")]
+    if sys.platform == "win32":
+        assert registration.apply_to_current_process()
+        assert applied == [APP_USER_MODEL_ID]
+    else:
+        assert not registration.apply_to_current_process()
+        assert applied == []
+    assert registration.unregister()
+    assert registration.unregister()
+
+
+def test_windows_toast_rejects_blocked_notifier_setting(monkeypatch):
+    class XmlDocument:
+        def load_xml(self, _value): pass
+
+    class ToastNotification:
+        def __init__(self, _document): pass
+
+    class Notifier:
+        class Setting:
+            name = "DISABLED_FOR_USER"
+        setting = Setting()
+        def show(self, _notification): raise AssertionError("blocked notifier must not show")
+
+    class Manager:
+        @staticmethod
+        def create_toast_notifier_with_id(_app_id): return Notifier()
+
+    dom = ModuleType("winrt.windows.data.xml.dom"); dom.XmlDocument = XmlDocument
+    notifications = ModuleType("winrt.windows.ui.notifications")
+    notifications.ToastNotification = ToastNotification; notifications.ToastNotificationManager = Manager
+    monkeypatch.setitem(sys.modules, "winrt.windows.data.xml.dom", dom)
+    monkeypatch.setitem(sys.modules, "winrt.windows.ui.notifications", notifications)
+
+    class Registration:
+        def register(self): return True
+
+    candidate = NotificationCandidate("x", "x", 1, __import__("datetime").datetime.now(__import__("datetime").UTC), "Title", "Body")
+    import pytest
+    with pytest.raises(RuntimeError, match="DISABLED_FOR_USER"):
+        WindowsToastAdapter(registration=Registration()).send(candidate)
+
+
+def test_windows_toast_sends_when_setting_diagnostic_is_unavailable(monkeypatch):
+    calls = []
+
+    class XmlDocument:
+        def load_xml(self, _value): pass
+
+    class ToastNotification:
+        def __init__(self, _document): pass
+
+    class Notifier:
+        @property
+        def setting(self): raise OSError("ERROR_NOT_FOUND")
+        def show(self, _notification): calls.append("show")
+
+    class Manager:
+        @staticmethod
+        def create_toast_notifier_with_id(_app_id): return Notifier()
+
+    dom = ModuleType("winrt.windows.data.xml.dom"); dom.XmlDocument = XmlDocument
+    notifications = ModuleType("winrt.windows.ui.notifications")
+    notifications.ToastNotification = ToastNotification; notifications.ToastNotificationManager = Manager
+    monkeypatch.setitem(sys.modules, "winrt.windows.data.xml.dom", dom)
+    monkeypatch.setitem(sys.modules, "winrt.windows.ui.notifications", notifications)
+
+    class Registration:
+        def register(self): return True
+
+    candidate = NotificationCandidate("x", "x", 1, __import__("datetime").datetime.now(__import__("datetime").UTC), "Title", "Body")
+    WindowsToastAdapter(registration=Registration()).send(candidate)
+    assert calls == ["show"]

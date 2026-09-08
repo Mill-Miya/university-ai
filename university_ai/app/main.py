@@ -18,6 +18,7 @@ from university_ai.database.repository import (
     AssignmentRepository, CourseRepository, ExamRepository, NotificationEventRepository, ScheduleOverrideRepository,
 )
 from university_ai.notification.fallback import FallbackOnErrorAdapter, TrayFallbackAdapter
+from university_ai.notification.registration import WindowsToastRegistration
 from university_ai.notification.service import NotificationService
 from university_ai.notification.windows import WindowsToastAdapter
 from university_ai.ui.presenter import UniversityPresenter
@@ -58,6 +59,11 @@ def build_resident_application(config: AppConfig):
     courses = CourseRepository(connection); assignments = AssignmentRepository(connection); exams = ExamRepository(connection)
     overrides = ScheduleOverrideRepository(connection); events = NotificationEventRepository(connection)
     settings = SettingsStore(config.settings_path); startup = WindowsStartupAdapter()
+    toast_registration = WindowsToastRegistration(project_root=config.data_dir.parent)
+    if not toast_registration.register():
+        logging.getLogger(__name__).warning("Windows Toast registration unavailable; Tray fallback remains available")
+    elif not toast_registration.apply_to_current_process():
+        logging.getLogger(__name__).warning("Windows Toast process AUMID unavailable; Tray fallback remains available")
     context = ContextEngine(courses, assignments, exams, overrides)
     rules = RuleEngine(configuration_provider=lambda: _rule_configuration(settings))
     app = QApplication.instance() or QApplication([])
@@ -67,7 +73,10 @@ def build_resident_application(config: AppConfig):
     tray = SystemTrayController(
         presenter, lambda: SettingsDialog(settings, startup), lambda: lifecycle_holder["lifecycle"].stop() or app.quit()
     )
-    adapter = FallbackOnErrorAdapter(WindowsToastAdapter(), TrayFallbackAdapter(tray.show_message))
+    adapter = FallbackOnErrorAdapter(
+        WindowsToastAdapter(registration=toast_registration),
+        TrayFallbackAdapter(tray.show_message),
+    )
     service = NotificationService(events, adapter)
     scheduler = UniversityScheduler(context, rules, service)
     lifecycle = ApplicationLifecycle(tray, scheduler, database)
