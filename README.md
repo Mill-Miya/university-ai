@@ -69,3 +69,7 @@ pytest -q
 ## MVP 1対象外
 
 LLM、Ollama、クラウドAI、PDF/RAG、Hotkey、Overlay、Memory、Web検索、音声、自律操作、メール/SNS連携はMVP 1には含みません。
+
+## Optional N.O.V.A. Overlay
+
+Integration v1 adds a fail-open state display for capture, OCR, LLM and notifications. Existing Qt/Tray/Toast UI remains in place. Setup, protocol and tests: [N.O.V.A. Overlay integration](docs/NOVA_OVERLAY.md).

@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.test-artifacts/
 data/*.sqlite3
 data/settings.json
 data/documents/
