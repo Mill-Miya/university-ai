@@ -14,8 +14,12 @@ class ApplicationLifecycle:
     def __init__(self, *stoppables: Stoppable) -> None:
         self._stoppables = stoppables
         self._logger = logging.getLogger(__name__)
+        self._stopped = False
 
     def stop(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
         self._logger.info("Application lifecycle stopping")
         for component in reversed(self._stoppables):
             try:

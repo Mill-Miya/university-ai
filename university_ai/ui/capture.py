@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QWidget
 
 from university_ai.capture.backend import CaptureRectangle
 from university_ai.ui.llm import LlmWorker
+from university_ai.overlay import NovaOverlayAdapter
 
 
 class CaptureSelectionOverlay(QWidget):
@@ -91,6 +92,7 @@ class ScreenCaptureController:
         llm_service=None,
         on_llm_result: Callable[[str], None] | None = None,
         defer: Callable[[Callable[[], None]], None] | None = None,
+        nova=None,
     ) -> None:
         self._service = service
         self._overlay_factory = overlay_factory
@@ -103,6 +105,9 @@ class ScreenCaptureController:
         self._active_window_hint: int | None = None
         self._defer = defer or (lambda callback: QTimer.singleShot(self._ACTIVE_CAPTURE_SETTLE_MS, callback))
         self._logger = logging.getLogger(__name__)
+        self._nova = NovaOverlayAdapter(nova)
+        self._selection_token = None
+        self._llm_workers = set()
 
     def capture_full_screen(self) -> None:
         self._run(self._service.capture_full_screen)
@@ -127,12 +132,14 @@ class ScreenCaptureController:
 
     def select_region_and_ocr(self) -> None:
         if self._ocr_service is None:
+            self._nova.error()
             self._notify(self._on_failure, "OCRは利用できません。")
             return
         self._start_selection(self._capture_region_and_ocr)
 
     def select_region_and_ask(self) -> None:
         if self._ocr_service is None or self._llm_service is None:
+            self._nova.error()
             self._notify(self._on_failure, "OCRまたはローカルAIは利用できません。")
             return
         self._start_selection(self._capture_region_and_ask)
@@ -140,6 +147,7 @@ class ScreenCaptureController:
     def _start_selection(self, selected: Callable[[CaptureRectangle], None]) -> None:
         if self._overlay is not None:
             return
+        self._selection_token = self._nova.begin('scanning')
         try:
             self._overlay = self._overlay_factory(selected, self._cancelled)
             self._overlay.show()
@@ -147,15 +155,17 @@ class ScreenCaptureController:
             self._overlay.activateWindow()
         except Exception:
             self._overlay = None
+            self._nova.finish(self._take_selection_token(), 'error')
             self._logger.exception("Region-selection overlay could not start")
             self._notify(self._on_failure, "範囲選択を開始できませんでした。")
 
     def _capture_region(self, rectangle: CaptureRectangle) -> None:
         self._overlay = None
-        self._run(lambda: self._service.capture_region(rectangle))
+        self._run(lambda: self._service.capture_region(rectangle), token=self._take_selection_token())
 
     def _capture_region_and_ocr(self, rectangle: CaptureRectangle) -> None:
         self._overlay = None
+        token = self._take_selection_token() or self._nova.begin('scanning')
         try:
             captured = self._service.capture_region(rectangle).capture
             assert self._ocr_service is not None
@@ -163,37 +173,63 @@ class ScreenCaptureController:
             if outcome.result.status.value != "EXTRACTED":
                 raise RuntimeError(outcome.result.error or "OCR failed")
         except Exception:
+            self._nova.finish(token, 'error')
             self._logger.exception("Region OCR failed")
             self._notify(self._on_failure, "範囲内の文字を読み取れませんでした。")
             return
+        self._nova.finish(token, 'notification')
         self._notify(self._on_success, f"保存しました: {captured.stored_path}")
         self._notify(self._on_ocr_result, outcome.result.text or "文字を検出できませんでした。")
 
     def _capture_region_and_ask(self, rectangle: CaptureRectangle) -> None:
         self._overlay = None
+        token = self._take_selection_token() or self._nova.begin('scanning')
         try:
             captured = self._service.capture_region(rectangle).capture
             outcome = self._ocr_service.recognize_capture(captured.id or 0)
             text = outcome.result.text or ""
             if outcome.result.status.value != "EXTRACTED" or not text.strip(): raise RuntimeError("OCR failed or empty")
         except Exception:
+            self._nova.finish(token, 'error')
             self._logger.exception("Region OCR to LLM failed"); self._notify(self._on_failure, "範囲内の文字を読み取れませんでした。"); return
+        self._nova.finish(token, 'notification')
         self._notify(self._on_success, f"保存しました: {captured.stored_path}")
-        self._llm_worker=LlmWorker(action=lambda: self._llm_service.explain_text(text))
-        self._llm_worker.completed.connect(lambda answer: self._notify(self._on_llm_result, answer))
-        self._llm_worker.failed.connect(lambda _error: self._notify(self._on_failure, "ローカルAIの回答を生成できませんでした。"))
-        self._llm_worker.start()
+        try:
+            worker=LlmWorker(action=lambda: self._llm_service.explain_text(text), nova=self._nova)
+            self._llm_worker=worker
+            self._llm_workers.add(worker)
+            worker.completed.connect(lambda answer: self._notify(self._on_llm_result, answer))
+            worker.failed.connect(lambda _error: self._notify(self._on_failure, "ローカルAIの回答を生成できませんでした。"))
+            worker.finished.connect(lambda: self._release_worker(worker))
+            worker.start()
+        except Exception:
+            self._nova.error()
+            self._logger.exception("Capture LLM worker could not start")
+            self._notify(self._on_failure, "ローカルAIの回答を生成できませんでした。")
+
+    def _release_worker(self, worker):
+        self._llm_workers.discard(worker)
+        if self._llm_worker is worker:
+            self._llm_worker = None
+
+    def _take_selection_token(self):
+        token, self._selection_token = self._selection_token, None
+        return token
 
     def _cancelled(self) -> None:
         self._overlay = None
+        self._nova.finish(self._take_selection_token())
 
-    def _run(self, action: Callable[[], object]) -> None:
+    def _run(self, action: Callable[[], object], *, token=None) -> None:
+        token = token or self._nova.begin('scanning')
         try:
             result = action()
         except Exception:
+            self._nova.finish(token, 'error')
             self._logger.exception("Screen capture failed")
             self._notify(self._on_failure, "画面キャプチャを保存できませんでした。")
             return
+        self._nova.finish(token, 'notification')
         self._notify(self._on_success, f"保存しました: {result.capture.stored_path}")
 
     def _notify(self, callback: Callable[[str], None], message: str) -> None:

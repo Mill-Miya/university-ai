@@ -9,6 +9,7 @@ from typing import Protocol
 from university_ai.core.rules import NotificationCandidate
 from university_ai.database.models import NotificationEvent, NotificationStatus
 from university_ai.database.repository import NotificationEventRepository
+from university_ai.overlay import NovaOverlayAdapter
 
 
 class NotificationAdapter(Protocol):
@@ -18,10 +19,11 @@ class NotificationAdapter(Protocol):
 class NotificationService:
     """Converts candidates to durable events, then delegates delivery to an adapter."""
 
-    def __init__(self, events: NotificationEventRepository, adapter: NotificationAdapter) -> None:
+    def __init__(self, events: NotificationEventRepository, adapter: NotificationAdapter, *, nova=None) -> None:
         self._events = events
         self._adapter = adapter
         self._logger = logging.getLogger(__name__)
+        self._nova = NovaOverlayAdapter(nova)
 
     def __call__(self, candidates: list[NotificationCandidate]) -> None:
         self.process(candidates)
@@ -40,6 +42,7 @@ class NotificationService:
                 ))
             except (sqlite3.Error, ValueError):
                 self._logger.exception("Notification event persistence failed")
+                self._nova.error()
                 continue
             if not created:
                 results.append(event)
@@ -51,7 +54,9 @@ class NotificationService:
                 self._adapter.send(candidate)
             except Exception:
                 self._logger.exception("Notification delivery failed")
+                self._nova.error()
                 results.append(self._events.update_status(event.id, NotificationStatus.FAILED))
             else:
+                self._nova.notification()
                 results.append(self._events.update_status(event.id, NotificationStatus.DELIVERED, delivered_at=datetime.now(UTC)))
         return results

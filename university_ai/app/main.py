@@ -35,6 +35,7 @@ from university_ai.ui.documents import DocumentPresenter, DocumentsDialog
 from university_ai.ui.settings import SettingsDialog
 from university_ai.ui.tray import SystemTrayController
 from university_ai.ui.capture import ScreenCaptureController
+from university_ai.overlay import NovaOverlayAdapter, NovaOverlayClient
 
 
 def configure_logging(config: AppConfig) -> None:
@@ -84,12 +85,17 @@ def build_resident_application(config: AppConfig):
     presenter = UniversityPresenter(context, courses)
     document_presenter = DocumentPresenter(documents, DocumentImportService(documents, config.data_dir / "documents"))
     llm_service = LlmService(OllamaEngine())
+    try:
+        nova = NovaOverlayAdapter(NovaOverlayClient.from_environment())
+    except Exception:
+        logging.getLogger(__name__).warning("NOVA initialization failed; University AI continues")
+        nova = NovaOverlayAdapter()
     tray = SystemTrayController(
         presenter,
         lambda: SettingsDialog(settings, startup),
         lambda: lifecycle_holder["lifecycle"].stop() or app.quit(),
         lambda: DocumentsDialog(document_presenter),
-        lambda: AiQuestionDialog(llm_service),
+        lambda: AiQuestionDialog(llm_service, nova=nova),
     )
     capture_service = ScreenCaptureService(
         QtScreenCaptureBackend(), captures, CaptureStorageService(config.data_dir / "captures")
@@ -103,15 +109,19 @@ def build_resident_application(config: AppConfig):
         on_ocr_result=lambda text: QMessageBox.information(None, "OCR結果", text),
         llm_service=llm_service,
         on_llm_result=lambda text: QMessageBox.information(None, "AI回答", text),
+        nova=nova,
     ))
     adapter = FallbackOnErrorAdapter(
         WindowsToastAdapter(registration=toast_registration),
         TrayFallbackAdapter(tray.show_message),
     )
-    service = NotificationService(events, adapter)
+    service = NotificationService(events, adapter, nova=nova)
     scheduler = UniversityScheduler(context, rules, service)
-    lifecycle = ApplicationLifecycle(tray, scheduler, database)
+    lifecycle = ApplicationLifecycle(nova, tray, scheduler, database)
     lifecycle_holder["lifecycle"] = lifecycle
+    app.aboutToQuit.connect(lifecycle.stop)
+    nova.start()
+    nova.idle()
     return app, tray, scheduler, lifecycle
 
 
@@ -124,19 +134,21 @@ def main(root: Path | None = None, *, run_event_loop: bool | None = None) -> int
         run_event_loop = root is None
     if not run_event_loop:
         return 0
+    lifecycle = None
     try:
         app, tray, scheduler, lifecycle = build_resident_application(config)
         if not tray.start():
             logging.getLogger(__name__).error("University AI cannot run without System Tray")
-            lifecycle.stop()
             return 1
         scheduler.start()
         result = app.exec()
-        lifecycle.stop()
         return result
     except Exception:
         logging.getLogger(__name__).exception("University AI resident startup failed")
         return 1
+    finally:
+        if lifecycle is not None:
+            lifecycle.stop()
 
 
 if __name__ == "__main__":
