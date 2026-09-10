@@ -1,6 +1,6 @@
-# N.O.V.A. Overlay Integration v1
+# N.O.V.A. Overlay Integration v1 / v2
 
-N.O.V.A. is an optional state display. Existing QMessageBox answers, Tray, Windows Toast/fallback, OCR storage and LlmService behavior remain the application interface. No answers, OCR text, prompts or notification bodies are sent to the overlay. Full HUD answer rendering, RAG and indexing are out of scope.
+N.O.V.A. is an optional state display and, in v2, an entry point for fixed existing actions. Existing QMessageBox answers, Tray, Windows Toast/fallback, OCR storage and LlmService behavior remain the application interface. No answers, OCR text, prompts or notification bodies are sent to the overlay. Full HUD answer rendering, RAG and indexing are out of scope.
 
 ## Start
 
@@ -74,3 +74,37 @@ The opt-in native test uses real Qt, Tesseract (`jpn+eng`), local Ollama (`qwen2
 There is no automatic download, persistent OS startup registration or repeated automatic process respawn. Fast operations may coalesce intermediate states. Full-screen captures may include the floating core. Error display timeout does not assert that a failed service itself recovered. Human visual review, mixed DPI, multi-monitor positioning and long-run resource profiling are separate from the automated native test. Windows descriptor protection relies on the private user directory ACL and does not isolate hostile processes running under the same user.
 
 The matching Overlay repository's `overlay-prototype/INTEGRATION_V1.md` specifies the receiver and native security boundary.
+
+## Integration v2 — Core commands
+
+Core → narrow Electron preload/main → existing authenticated localhost socket → Python daemon → `ApplicationCommandDispatcher.requested` with `Qt.QueuedConnection` → decorated main-thread slot → fixed `ApplicationCommand` handler map. Tray invokes that same dispatcher and the same existing handlers.
+
+| Command | Existing UI/controller |
+|---|---|
+| `ask_ai` | AiQuestionDialog |
+| `ask_region` | ScreenCaptureController.select_region_and_ask |
+| `open_documents` | DocumentsDialog |
+| `open_settings` | SettingsDialog |
+
+No document-question or notification-history UI exists in this base, so those entries are absent. No Core quit, arbitrary method dispatch, shell, file/URL payload or business logic is added. Dialogs use retained asynchronous `open()` instead of a blocking `exec()`; duplicate invocation raises the existing dialog and returns `busy`.
+
+The descriptor advertises `capabilities:["commands-v1"]`. Python registers its fixed command list only with a capable Overlay; old v1 Overlays continue receiving state packets unchanged. An old Python peer can connect to the new Overlay without registering commands.
+
+```json
+{"v":1,"op":"register_commands","token":"<credential>","commands":["ask_ai","ask_region","open_documents","open_settings"]}
+{"v":1,"op":"command","token":"<credential>","request_id":1,"command":"ask_ai"}
+{"v":1,"op":"command_result","token":"<credential>","request_id":1,"command":"ask_ai","ok":true}
+{"v":1,"op":"command_result","token":"<credential>","request_id":2,"command":"ask_region","ok":false,"error":"unavailable"}
+```
+
+`command` travels Electron → Python; registration/results travel Python → Electron and receive the existing v1 acknowledgement. The daemon demultiplexes commands and acknowledgements. All frames retain token authentication, strict schemas and the 4096-byte buffer bound. IDs are increasing integers 1..2147483647 per connection. Fixed errors are `unavailable`, `busy`, `invalid`, `failed`, `timeout`, `disconnected`, `duplicate`. No prompt, answer, OCR text, path, URL, executable or traceback crosses this boundary.
+
+One command is in flight; the sender and shared dispatcher debounce for 400 ms. Only one queued Qt delivery can exist even across reconnects. The receiver records IDs before dispatch; duplicate/overlapping frames close the connection. Queued work checks session liveness and a three-second deadline before executing. Electron times out after four seconds and closes the socket. It routes commands only when exactly one fresh registered peer exists. No command is automatically retried: after a lost reply execution may be uncertain. State heartbeats can be resent and reconnect re-advertises availability, but old intents/results never move to the new session.
+
+`ok:true` means the existing action was opened/started, not that an LLM request succeeded. Ollama/OCR failures retain existing Qt reporting and Error state. Menu interaction never chooses processing states; question and region actions use the v1 mapping above. Selecting an item closes the menu and releases Electron focus before Qt opens its UI. Idle remains click-through. Esc closes the Core menu first, then returns to Idle; outside click/focus loss/disconnect also closes it. A separate MOVE grip allows repositioning. The browser nine-state API and browser assets are unchanged.
+
+Additional tests: `tests/test_commands.py` covers fixed dispatch, malformed packets, queued Qt-thread handoff, duplicates, session invalidation, reconnect/no replay and shared handlers. Run `python tools/native_core_acceptance.py --overlay-dir C:\path\to\nova-visual-playground\overlay-prototype` for actual Core interaction against isolated data. Its test hotkey is Ctrl+Alt+Shift+Space to preserve an existing independent Overlay; summary output contains booleans/state names, never answers or credentials. Human final visual acceptance, mixed DPI, multiple monitors and long-run resources remain separate.
+
+The paired Overlay's `overlay-prototype/INTEGRATION_V2.md` specifies native UX and the complete wire contract. Qt threading reference: [queued connections](https://doc.qt.io/qtforpython-6/overviews/qtdoc-threads-qobject.html).
+
+Verified on Windows, 2026-09-10: **105 tests passed**, paired Overlay check/native passed, and real Qt/Capture/Tesseract/Ollama/IPC/Electron integration passed. Actual desktop Core input opened AI質問, 範囲AI and 資料; real answers stayed in Qt. Core-menu Esc used desktop keyboard input; region Esc passed the native Qt event test (Qt Tool windows were absent from the desktop automation inventory). Forced Overlay exit preserved the app/Tray/LLM, reconnection worked, and graceful shutdown preserved independently restarted Overlay. Final human visual quality, mixed DPI, multiple monitors, long-duration resource profiling and Toast appearance remain unaccepted. Status: **Integration v2 implementation complete, final acceptance incomplete**.

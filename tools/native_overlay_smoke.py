@@ -19,6 +19,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QTimer, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
 
 from university_ai.app import main as composition
@@ -96,15 +97,25 @@ def run(overlay_dir: Path):
         screen = app.primaryScreen().geometry()
         rectangle = CaptureRectangle(geometry.x()-screen.x(), geometry.y()-screen.y(), geometry.width(), geometry.height())
         controller = tray._capture_controller
+        controller.select_region_and_ask()
+        state('scanning')
+        QTest.keyClick(controller._overlay, Qt.Key.Key_Escape)
+        assert controller._overlay is None
+        state('idle')
+        report['checks'].append('native Qt region-selection Escape -> cancellation -> idle')
         answers, failures = [], []
         original_result = controller._on_llm_result
         controller._on_llm_result = lambda text: (answers.append(text), original_result(text))
         controller._on_failure = failures.append
+        checkpoint = len(states())
         QTimer.singleShot(0, lambda: controller._capture_region_and_ask(rectangle))
-        state('scanning'); state('thinking', 90)
+        # Synchronous OCR can finish before the Qt pump returns; verify the actual
+        # recorded renderer transitions instead of requiring the transient still live.
+        until(lambda: 'scanning' in states()[checkpoint:], 90)
+        until(lambda: 'thinking' in states()[checkpoint:], 90)
         until(lambda: bool(answers) or bool(failures), 180)
         assert answers and not failures, failures
-        state('notification'); state('idle')
+        until(lambda: 'notification' in states()[checkpoint:]); state('idle')
         report['checks'].append('real Qt sample capture -> Tesseract OCR -> Ollama -> notification -> idle; QMessageBox retained')
 
         worker = LlmWorker(action=lambda: (_ for _ in ()).throw(RuntimeError('deliberate test failure')), nova=client)

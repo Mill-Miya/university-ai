@@ -17,6 +17,7 @@ class CaptureSelectionOverlay(QWidget):
 
     def __init__(self, on_selected: Callable[[CaptureRectangle], None], on_cancelled: Callable[[], None]) -> None:
         super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setWindowTitle('University AI 範囲選択 — Escで取消')
         self._on_selected = on_selected
         self._on_cancelled = on_cancelled
         self._start: QPoint | None = None
