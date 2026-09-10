@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from university_ai.app.config import AppConfig, SettingsStore
 from university_ai.app.lifecycle import ApplicationLifecycle
+from university_ai.app.commands import ApplicationCommandDispatcher
 from university_ai.app.startup import WindowsStartupAdapter
 from university_ai.core.context import ContextEngine
 from university_ai.core.rules import RuleConfiguration, RuleEngine
@@ -117,7 +118,10 @@ def build_resident_application(config: AppConfig):
     )
     service = NotificationService(events, adapter, nova=nova)
     scheduler = UniversityScheduler(context, rules, service)
-    lifecycle = ApplicationLifecycle(nova, tray, scheduler, database)
+    dispatcher = ApplicationCommandDispatcher(tray.command_handlers(), app)
+    tray.set_command_dispatcher(dispatcher)
+    nova.configure_commands(dispatcher)
+    lifecycle = ApplicationLifecycle(nova, tray, scheduler, database, dispatcher)
     lifecycle_holder["lifecycle"] = lifecycle
     app.aboutToQuit.connect(lifecycle.stop)
     nova.start()

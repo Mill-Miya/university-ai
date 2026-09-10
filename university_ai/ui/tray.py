@@ -6,6 +6,7 @@ from collections.abc import Callable
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QStyle, QSystemTrayIcon
 
 from university_ai.ui.presenter import UniversityPresenter
+from university_ai.app.commands import ApplicationCommand, CommandBusy, CommandUnavailable
 
 
 class SystemTrayController:
@@ -32,6 +33,26 @@ class SystemTrayController:
         self._application_provider = application_provider
         self._tray_factory = tray_factory
         self._menu_factory = menu_factory
+        self._dispatcher = None
+        self._dialogs = {}
+
+    def command_handlers(self):
+        handlers = {ApplicationCommand.OPEN_SETTINGS: self._open_settings}
+        if self._documents_factory is not None:
+            handlers[ApplicationCommand.OPEN_DOCUMENTS] = self._open_documents
+        if self._llm_factory is not None:
+            handlers[ApplicationCommand.ASK_AI] = self._open_llm
+        if self._capture_controller is not None:
+            handlers[ApplicationCommand.ASK_REGION] = self._ask_region
+        return handlers
+
+    def set_command_dispatcher(self, dispatcher):
+        self._dispatcher = dispatcher
+
+    def invoke_command(self, command):
+        if self._dispatcher is not None:
+            return self._dispatcher.invoke(command)
+        return self.command_handlers()[command]()
 
     @property
     def available(self) -> bool:
@@ -54,9 +75,9 @@ class SystemTrayController:
         self._menu.addAction("課題", lambda: self._show("未完了課題", self._presenter.assignments()))
         self._menu.addAction("試験", lambda: self._show("試験", self._presenter.exams()))
         if self._documents_factory is not None:
-            self._menu.addAction("資料", self._open_documents)
+            self._menu.addAction("資料", lambda: self.invoke_command(ApplicationCommand.OPEN_DOCUMENTS))
         if self._llm_factory is not None:
-            self._menu.addAction("AIに質問", self._open_llm)
+            self._menu.addAction("AIに質問", lambda: self.invoke_command(ApplicationCommand.ASK_AI))
         if self._capture_controller is not None:
             self._capture_menu = self._menu.addMenu("画面キャプチャ")
             about_to_show = getattr(self._capture_menu, "aboutToShow", None)
@@ -66,8 +87,8 @@ class SystemTrayController:
             self._capture_menu.addAction("アクティブウィンドウ", self._capture_controller.capture_active_window)
             self._capture_menu.addAction("範囲選択", self._capture_controller.select_region)
             self._capture_menu.addAction("範囲を読取", self._capture_controller.select_region_and_ocr)
-            self._capture_menu.addAction("範囲をAIに聞く", self._capture_controller.select_region_and_ask)
-        self._menu.addAction("設定", self._open_settings)
+            self._capture_menu.addAction("範囲をAIに聞く", lambda: self.invoke_command(ApplicationCommand.ASK_REGION))
+        self._menu.addAction("設定", lambda: self.invoke_command(ApplicationCommand.OPEN_SETTINGS))
         self._menu.addSeparator()
         self._menu.addAction("終了", self._on_quit)
         self._logger.info("System Tray context menu created")
@@ -98,12 +119,33 @@ class SystemTrayController:
         QMessageBox.information(None, title, "\n".join(lines) if lines else "該当する項目はありません。")
 
     def _open_settings(self) -> None:
-        self._settings_factory().exec()
+        self._open_dialog(ApplicationCommand.OPEN_SETTINGS, self._settings_factory)
 
     def _open_documents(self) -> None:
         assert self._documents_factory is not None
-        self._documents_factory().exec()
+        self._open_dialog(ApplicationCommand.OPEN_DOCUMENTS, self._documents_factory)
 
     def _open_llm(self) -> None:
         assert self._llm_factory is not None
-        self._llm_factory().exec()
+        self._open_dialog(ApplicationCommand.ASK_AI, self._llm_factory)
+
+    def _open_dialog(self, command, factory):
+        if command in self._dialogs:
+            self._dialogs[command].raise_()
+            self._dialogs[command].activateWindow()
+            raise CommandBusy()
+        dialog = factory()
+        self._dialogs[command] = dialog
+        dialog.finished.connect(lambda *_: self._dialogs.pop(command, None))
+        # Keep the existing dialog, without a nested exec loop delaying the IPC reply.
+        dialog.open()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _ask_region(self):
+        controller = self._capture_controller
+        if controller is None or controller._ocr_service is None or controller._llm_service is None:
+            raise CommandUnavailable()
+        if controller._overlay is not None or controller._llm_workers:
+            raise CommandBusy()
+        controller.select_region_and_ask()

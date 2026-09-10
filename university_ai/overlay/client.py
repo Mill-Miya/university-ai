@@ -43,6 +43,11 @@ class NovaOverlayClient:
         self._process = None
         self._owner = secrets.token_hex(32)
         self._launched = False
+        self._dispatcher = None
+        self._command_capable = False
+
+    def configure_commands(self, dispatcher):
+        self._dispatcher = dispatcher
 
     @classmethod
     def from_environment(cls):
@@ -136,6 +141,8 @@ class NovaOverlayClient:
             raise ValueError("Invalid local overlay endpoint")
         if not isinstance(token, str) or len(token) != 64 or any(c not in "0123456789abcdef" for c in token):
             raise ValueError("Invalid local overlay credential")
+        capabilities = descriptor.get("capabilities", [])
+        self._command_capable = isinstance(capabilities, list) and "commands-v1" in capabilities
         sock = socket.create_connection(("127.0.0.1", port), timeout=0.25)
         return sock, token
 
@@ -163,6 +170,7 @@ class NovaOverlayClient:
 
     def _run(self):
         sock = None
+        channel = None
         token = None
         last_state = None
         sent_at = 0.0
@@ -174,13 +182,24 @@ class NovaOverlayClient:
                     now = time.monotonic()
                     if sock is None and now >= retry_at:
                         sock, token = self._connect()
+                        if self._dispatcher is not None and self._command_capable:
+                            from university_ai.overlay.channel import CommandChannel
+                            channel = CommandChannel(sock, token, self._dispatcher)
+                            channel.exchange({"v": 1, "op": "register_commands", "token": token,
+                                              "commands": self._dispatcher.commands})
                         last_state = None
                         LOGGER.info("NOVA Overlay connected")
                     state = self.current_state()
                     if sock is not None and (state != last_state or now - sent_at >= 1.0):
-                        self._send(sock, {"v": 1, "op": "state", "token": token, "state": state})
+                        packet = {"v": 1, "op": "state", "token": token, "state": state}
+                        channel.exchange(packet) if channel else self._send(sock, packet)
                         last_state, sent_at = state, now
+                    if channel is not None:
+                        channel.pump()
                 except Exception:
+                    if channel is not None:
+                        channel.close()
+                        channel = None
                     if sock is not None:
                         sock.close()
                     sock = None
@@ -195,10 +214,13 @@ class NovaOverlayClient:
                 self._wake.wait(0.1)
                 self._wake.clear()
         finally:
+            if channel is not None:
+                channel.close()
             if sock is not None:
                 try:
-                    self._send(sock, {"v": 1, "op": "shutdown", "token": token,
-                                      "owner": self._owner if self._process is not None else None})
+                    packet = {"v": 1, "op": "shutdown", "token": token,
+                              "owner": self._owner if self._process is not None else None}
+                    channel.exchange(packet) if channel else self._send(sock, packet)
                 except Exception:
                     pass
                 sock.close()
@@ -231,6 +253,7 @@ class NovaOverlayAdapter:
             return None
 
     def start(self): return self._call("start")
+    def configure_commands(self, dispatcher): return self._call("configure_commands", dispatcher)
     def stop(self): return self._call("stop")
     def begin(self, state): return self._call("begin", state)
     def finish(self, token, outcome=None): return self._call("finish", token, outcome)
