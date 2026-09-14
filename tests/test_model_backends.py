@@ -45,12 +45,21 @@ def test_ollama_backend_availability_and_generate_without_daemon(monkeypatch):
     def fake_json(path, payload):
         if path == "/api/tags": return {"models": [{"name": "qwen2.5:3b"}]}
         captured["payload"] = payload
-        return {"message": {"content": "final", "thinking": "private"}, "done_reason": "stop", "eval_duration": 2_000_000_000, "eval_count": 10}
+        return {"message": {"content": "final", "thinking": "private"}, "done_reason": "stop", "prompt_eval_count": 4, "eval_duration": 2_000_000_000, "eval_count": 10}
     monkeypatch.setattr(backend, "_json", fake_json)
     assert backend.availability()
     result = backend.generate(LlmRequest("hello", max_tokens=384))
     assert result.text == "final" and result.metadata["thinking_present"] is True
     assert captured["payload"]["model"] == "qwen2.5:3b" and captured["payload"]["keep_alive"] == "1m"
+    assert captured["payload"]["messages"][-1]["content"] == "hello"
+    assert result.metadata["prompt_eval_count"] == 4
+
+
+def test_ollama_backend_uses_no_think_soft_switch_only_for_qwen3_models():
+    standard = OllamaBackend(ModelBackendConfig(model="qwen2.5:3b"))
+    thinking_capable = OllamaBackend(ModelBackendConfig(model="qwen3:4b"))
+    assert standard._user_content("質問") == "質問"
+    assert thinking_capable._user_content("質問") == "/no_think\n質問"
 
 
 def test_backend_factory_and_openvino_skeleton():

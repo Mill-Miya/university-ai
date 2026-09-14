@@ -57,7 +57,7 @@ class OllamaBackend:
         messages = []
         if request.system_prompt:
             messages.append({"role": "system", "content": request.system_prompt})
-        messages.append({"role": "user", "content": "/no_think\n" + request.prompt})
+        messages.append({"role": "user", "content": self._user_content(request.prompt)})
         payload = {
             "model": self._config.model,
             "messages": messages,
@@ -75,6 +75,7 @@ class OllamaBackend:
         return LlmResponse(content, self._config.model, self.runtime, datetime.now(UTC), time.monotonic() - started, {
             "done_reason": result.get("done_reason"),
             "load_duration_ns": result.get("load_duration", 0),
+            "prompt_eval_count": result.get("prompt_eval_count", 0),
             "prompt_eval_duration_ns": result.get("prompt_eval_duration", 0),
             "eval_duration_ns": eval_duration,
             "eval_count": eval_count,
@@ -90,6 +91,17 @@ class OllamaBackend:
         request = Request(self._config.endpoint.rstrip("/") + path, data=data, headers={"Content-Type": "application/json"})
         with urlopen(request, timeout=self._config.timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def _user_content(self, prompt: str) -> str:
+        """Use Qwen's soft switch only for models that expose a thinking mode.
+
+        Qwen2.5 is the current non-thinking default.  Prefixing its normal
+        prompts with ``/no_think`` can make it answer with that literal token.
+        The API-level ``think`` flag remains present for every backend call.
+        """
+        if self._config.model.lower().startswith("qwen3"):
+            return "/no_think\n" + prompt
+        return prompt
 
     @staticmethod
     def _sanitize_final_content(content: str) -> str:
