@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from university_ai.database.models import (
-    Assignment, AssignmentStatus, CaptureType, Course, Document, Exam, ExtractionStatus, NotificationEvent,
+    Assignment, AssignmentStatus, CaptureType, Course, Document, DocumentChunk, Exam, ExtractionStatus, NotificationEvent,
     NotificationStatus, OcrResult, OcrSourceType, OcrStatus, OverrideType, ScheduleOverride, ScreenCapture,
 )
 
@@ -70,6 +70,25 @@ def _validate_document(document: Document) -> None:
     json.loads(document.metadata_json)
     _utc_text(document.imported_at)
     _utc_text(document.modified_at)
+
+
+def _validate_document_chunk(chunk: DocumentChunk) -> None:
+    if chunk.document_id <= 0:
+        raise ValueError("document_id must be positive")
+    if chunk.chunk_index < 0:
+        raise ValueError("chunk_index must not be negative")
+    if not chunk.text.strip():
+        raise ValueError("chunk text must not be empty")
+    if not chunk.embedding:
+        raise ValueError("chunk embedding must not be empty")
+    if not all(isinstance(value, (int, float)) for value in chunk.embedding):
+        raise ValueError("chunk embedding must contain numbers")
+    if not chunk.embedding_model or not chunk.embedding_runtime:
+        raise ValueError("embedding model and runtime are required")
+    if chunk.page is not None and chunk.page <= 0:
+        raise ValueError("page must be positive")
+    json.loads(chunk.metadata_json)
+    _utc_text(chunk.indexed_at)
 
 
 def _validate_capture(capture: ScreenCapture) -> None:
@@ -374,6 +393,55 @@ class DocumentRepository:
         return cursor.rowcount == 1
 
 
+class DocumentChunkRepository:
+    """Persistent, flat local vector index. SQLite retains the index backup unit."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._db = connection
+
+    def list_for_document(self, document_id: int) -> list[DocumentChunk]:
+        rows = self._db.execute(
+            "SELECT * FROM document_chunks WHERE document_id=? ORDER BY chunk_index", (document_id,)
+        )
+        return [_document_chunk(row) for row in rows]
+
+    def list_for_embedding_model(self, embedding_model: str) -> list[DocumentChunk]:
+        rows = self._db.execute(
+            "SELECT * FROM document_chunks WHERE embedding_model=? ORDER BY document_id, chunk_index", (embedding_model,)
+        )
+        return [_document_chunk(row) for row in rows]
+
+    def replace_for_document(self, document_id: int, chunks: list[DocumentChunk]) -> list[DocumentChunk]:
+        if document_id <= 0:
+            raise ValueError("document_id must be positive")
+        if any(chunk.document_id != document_id for chunk in chunks):
+            raise ValueError("all chunks must belong to document_id")
+        for chunk in chunks:
+            _validate_document_chunk(chunk)
+        try:
+            self._db.execute("BEGIN")
+            self._db.execute("DELETE FROM document_chunks WHERE document_id=?", (document_id,))
+            stored: list[DocumentChunk] = []
+            for chunk in chunks:
+                cursor = self._db.execute(
+                    """INSERT INTO document_chunks(document_id,chunk_index,page,text,embedding_json,embedding_model,
+                    embedding_runtime,indexed_at,metadata_json) VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (chunk.document_id, chunk.chunk_index, chunk.page, chunk.text, json.dumps(chunk.embedding),
+                     chunk.embedding_model, chunk.embedding_runtime, _utc_text(chunk.indexed_at), chunk.metadata_json),
+                )
+                stored.append(replace(chunk, id=cursor.lastrowid))
+            self._db.commit()
+            return stored
+        except Exception:
+            self._db.rollback()
+            raise
+
+    def delete_for_document(self, document_id: int) -> int:
+        cursor = self._db.execute("DELETE FROM document_chunks WHERE document_id=?", (document_id,))
+        self._db.commit()
+        return cursor.rowcount
+
+
 class ScreenCaptureRepository:
     """Metadata repository. File deletion is intentionally owned by CaptureStorageService."""
 
@@ -486,6 +554,13 @@ def _document(row: sqlite3.Row) -> Document:
     values["modified_at"] = _as_utc(values["modified_at"])
     values["extraction_status"] = ExtractionStatus(values["extraction_status"])
     return Document(**values)
+
+
+def _document_chunk(row: sqlite3.Row) -> DocumentChunk:
+    values = dict(row)
+    values["embedding"] = tuple(json.loads(values.pop("embedding_json")))
+    values["indexed_at"] = _as_utc(values["indexed_at"])
+    return DocumentChunk(**values)
 
 
 def _screen_capture(row: sqlite3.Row) -> ScreenCapture:

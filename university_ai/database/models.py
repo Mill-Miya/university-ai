@@ -49,6 +49,22 @@ class OcrStatus(StrEnum):
 
 
 @dataclass(frozen=True)
+class DocumentChunk:
+    """A locally indexed text segment. The embedding remains reproducible from text."""
+
+    id: int | None
+    document_id: int
+    chunk_index: int
+    text: str
+    embedding: tuple[float, ...]
+    embedding_model: str
+    embedding_runtime: str
+    indexed_at: datetime
+    page: int | None = None
+    metadata_json: str = "{}"
+
+
+@dataclass(frozen=True)
 class Course:
     id: int | None
     name: str

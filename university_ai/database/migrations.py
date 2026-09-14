@@ -97,6 +97,25 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         CREATE INDEX ocr_results_source_processed
             ON ocr_results(source_type, source_id, processed_at DESC);
     """),
+    (6, """
+        CREATE TABLE document_chunks (
+            id INTEGER PRIMARY KEY,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
+            page INTEGER,
+            text TEXT NOT NULL,
+            embedding_json TEXT NOT NULL,
+            embedding_model TEXT NOT NULL,
+            embedding_runtime TEXT NOT NULL,
+            indexed_at TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            UNIQUE(document_id, chunk_index)
+        );
+        CREATE INDEX document_chunks_document_index
+            ON document_chunks(document_id, chunk_index);
+        CREATE INDEX document_chunks_embedding_model
+            ON document_chunks(embedding_model);
+    """),
 )
 
 

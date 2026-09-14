@@ -15,7 +15,7 @@ from university_ai.core.scheduler import UniversityScheduler
 from university_ai.database.database import Database
 from university_ai.database.migrations import migrate
 from university_ai.database.repository import (
-    AssignmentRepository, CourseRepository, DocumentRepository, ExamRepository, NotificationEventRepository,
+    AssignmentRepository, CourseRepository, DocumentChunkRepository, DocumentRepository, ExamRepository, NotificationEventRepository,
     OcrResultRepository, ScheduleOverrideRepository, ScreenCaptureRepository,
 )
 from university_ai.capture.backend import QtScreenCaptureBackend
@@ -35,6 +35,11 @@ from university_ai.ui.documents import DocumentPresenter, DocumentsDialog
 from university_ai.ui.settings import SettingsDialog
 from university_ai.ui.tray import SystemTrayController
 from university_ai.ui.capture import ScreenCaptureController
+from university_ai.rag.embedding import OllamaEmbeddingEngine
+from university_ai.rag.indexing import DocumentIndexingService
+from university_ai.rag.retriever import Retriever
+from university_ai.rag.service import RagService
+from university_ai.ui.rag import RagQuestionDialog
 
 
 def configure_logging(config: AppConfig) -> None:
@@ -69,7 +74,7 @@ def build_resident_application(config: AppConfig):
     connection = database.connect(); migrate(connection)
     courses = CourseRepository(connection); assignments = AssignmentRepository(connection); exams = ExamRepository(connection)
     overrides = ScheduleOverrideRepository(connection); events = NotificationEventRepository(connection); documents = DocumentRepository(connection)
-    captures = ScreenCaptureRepository(connection); ocr_results = OcrResultRepository(connection)
+    captures = ScreenCaptureRepository(connection); ocr_results = OcrResultRepository(connection); chunks = DocumentChunkRepository(connection)
     settings = SettingsStore(config.settings_path); startup = WindowsStartupAdapter()
     toast_registration = WindowsToastRegistration(project_root=config.data_dir.parent)
     if not toast_registration.register():
@@ -82,14 +87,18 @@ def build_resident_application(config: AppConfig):
     configure_resident_qt_application(app)
     lifecycle_holder = {}
     presenter = UniversityPresenter(context, courses)
-    document_presenter = DocumentPresenter(documents, DocumentImportService(documents, config.data_dir / "documents"))
     llm_service = LlmService(OllamaEngine())
+    embedding_engine = OllamaEmbeddingEngine()
+    indexing_service = DocumentIndexingService(documents, chunks, embedding_engine)
+    rag_service = RagService(Retriever(chunks, documents, embedding_engine), llm_service)
+    document_presenter = DocumentPresenter(documents, DocumentImportService(documents, config.data_dir / "documents"), indexing_service)
     tray = SystemTrayController(
         presenter,
         lambda: SettingsDialog(settings, startup),
         lambda: lifecycle_holder["lifecycle"].stop() or app.quit(),
         lambda: DocumentsDialog(document_presenter),
         lambda: AiQuestionDialog(llm_service),
+        lambda: RagQuestionDialog(rag_service),
     )
     capture_service = ScreenCaptureService(
         QtScreenCaptureBackend(), captures, CaptureStorageService(config.data_dir / "captures")

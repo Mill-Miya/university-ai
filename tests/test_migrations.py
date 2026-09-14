@@ -7,7 +7,8 @@ def test_migrations_are_idempotent(tmp_path):
     connection = database.connect()
     migrate(connection)
     migrate(connection)
-    assert connection.execute("SELECT version FROM schema_version").fetchone()[0] == 5
+    assert connection.execute("SELECT version FROM schema_version").fetchone()[0] == 6
     assert connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='documents'").fetchone()[0] == "documents"
     assert connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='screen_captures'").fetchone()[0] == "screen_captures"
+    assert connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='document_chunks'").fetchone()[0] == "document_chunks"
     database.stop()
