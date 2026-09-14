@@ -23,7 +23,7 @@ from university_ai.capture.service import CaptureStorageService, ScreenCaptureSe
 from university_ai.documents.import_service import DocumentImportService
 from university_ai.ocr.engine import TesseractOcrEngine
 from university_ai.ocr.service import OcrService
-from university_ai.llm.ollama import OllamaEngine
+from university_ai.llm.factory import create_model_backend
 from university_ai.llm.service import LlmService
 from university_ai.ui.llm import AiQuestionDialog
 from university_ai.notification.fallback import FallbackOnErrorAdapter, TrayFallbackAdapter
@@ -87,7 +87,7 @@ def build_resident_application(config: AppConfig):
     configure_resident_qt_application(app)
     lifecycle_holder = {}
     presenter = UniversityPresenter(context, courses)
-    llm_service = LlmService(OllamaEngine())
+    llm_service = LlmService(create_model_backend(config.model_backend), config.model_backend)
     embedding_engine = OllamaEmbeddingEngine()
     indexing_service = DocumentIndexingService(documents, chunks, embedding_engine)
     rag_service = RagService(Retriever(chunks, documents, embedding_engine), llm_service)

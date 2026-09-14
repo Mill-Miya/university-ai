@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
+
+from university_ai.llm.config import ModelBackendConfig
 
 
 @dataclass(frozen=True)
@@ -11,6 +13,7 @@ class AppConfig:
 
     data_dir: Path
     log_dir: Path
+    model_backend: ModelBackendConfig = field(default_factory=ModelBackendConfig)
 
     @property
     def database_path(self) -> Path:
