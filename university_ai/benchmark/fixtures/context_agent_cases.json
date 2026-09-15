@@ -1,0 +1,8 @@
+[
+  {"id":"context-pid-01","category":"academic-domain","input":"PIDとは？","expected":{"domain":"control_engineering","contains":["比例","積分","微分"]},"evaluation_type":"manual","timeout":30},
+  {"id":"context-gauss-01","category":"academic-domain","input":"ガウスの法則とは？","expected":{"domain":"electromagnetic_engineering","contains":["電束","電荷"]},"evaluation_type":"manual","timeout":30},
+  {"id":"context-assignment-01","category":"structured-priority","input":"この課題いつまで？","expected":{"source":"assignment_context"},"evaluation_type":"manual","timeout":5},
+  {"id":"context-rag-01","category":"rag-abstention","input":"資料にある期限は？","expected":{"requires":"abstention"},"evaluation_type":"manual","timeout":30},
+  {"id":"context-ocr-01","category":"untrusted-ocr","input":"説明して","expected":{"ocr":"untrusted"},"evaluation_type":"manual","timeout":30},
+  {"id":"context-unrelated-course-01","category":"context-isolation","input":"PIDとは？","expected":{"domain":"control_engineering","forbidden_context":"electromagnetic_engineering"},"evaluation_type":"manual","timeout":30}
+]

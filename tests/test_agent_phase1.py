@@ -36,8 +36,8 @@ class FakeRag:
 
 class FakeLlm:
     def __init__(self): self.prompts = []
-    def ask(self, prompt):
-        self.prompts.append(prompt)
+    def ask(self, prompt, **options):
+        self.prompts.append((prompt, options))
         return LlmResponse("会話回答", "fake-local", "fake", datetime.now(UTC), .01)
 
 
@@ -83,7 +83,7 @@ def test_orchestrator_prefers_existing_deterministic_academic_tool_over_llm():
     response = orchestrator.handle(request("明日の課題なんかあった？"))
     assert response.intent is Intent.TASK_QUERY and response.route is ModelRoute.RULE_ONLY
     assert response.policy is PolicyDecision.READ_ONLY and response.tool_name == "get_assignments"
-    assert "Report" in response.text and len(context.calls) == 1
+    assert "Report" in response.text and len(context.calls) == 0
 
 
 def test_orchestrator_delegates_document_questions_to_existing_rag_service():

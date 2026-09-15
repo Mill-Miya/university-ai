@@ -18,4 +18,6 @@ class IntentRouter:
             return Intent.DOCUMENT_SEARCH
         if any(word in text for word in ("時間割", "今日の授業", "次の授業", "授業")):
             return Intent.SCHEDULE_QUERY
+        if text.endswith(("?", "？")) or "とは" in text:
+            return Intent.QUESTION
         return Intent.CHAT

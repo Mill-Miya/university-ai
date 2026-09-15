@@ -21,13 +21,16 @@ class AgentOrchestrator:
     def handle(self, request: AgentRequest) -> AgentResponse:
         intent = self._intent_router.route(request)
         route = self._model_router.route(intent)
-        context = self._context_builder.build(request)
         tool_name = self._TOOLS.get(intent)
         if tool_name:
             arguments = {"question": request.text} if tool_name == "search_documents" else {}
             result, policy = self._tools.execute(ToolCall(tool_name, arguments))
-            return AgentResponse(result.text, intent, route, policy, tool_name, {"context": context, **result.metadata})
+            return AgentResponse(result.text, intent, route, policy, tool_name, result.metadata)
+        context = self._context_builder.build(request, intent)
+        if context.requires_abstention:
+            return AgentResponse("取り込まれた資料から十分な根拠を見つけられませんでした。", intent, route,
+                                 PolicyDecision.READ_ONLY, metadata={"context": context, "abstained": True})
         if route is ModelRoute.FAST and self._llm is not None:
-            response = self._llm.ask(request.text)
+            response = self._llm.ask(request.text + context.user_context_suffix(), system_prompt=context.system_prompt())
             return AgentResponse(response.text, intent, route, PolicyDecision.READ_ONLY, metadata={"model": response.model, "context": context})
         return AgentResponse("この要求は現在のAgent Phase 1では処理できません。", intent, route, PolicyDecision.DENIED, metadata={"context": context})
