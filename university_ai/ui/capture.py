@@ -90,6 +90,8 @@ class ScreenCaptureController:
         on_ocr_result: Callable[[str], None] | None = None,
         llm_service=None,
         on_llm_result: Callable[[str], None] | None = None,
+        vision_perception_service=None,
+        image_encoder=None,
         defer: Callable[[Callable[[], None]], None] | None = None,
     ) -> None:
         self._service = service
@@ -99,6 +101,8 @@ class ScreenCaptureController:
         self._ocr_service = ocr_service
         self._on_ocr_result = on_ocr_result or (lambda _text: None)
         self._llm_service = llm_service; self._on_llm_result = on_llm_result or (lambda _text: None); self._llm_worker=None
+        self._vision_perception_service = vision_perception_service
+        self._image_encoder = image_encoder
         self._overlay = None
         self._active_window_hint: int | None = None
         self._defer = defer or (lambda callback: QTimer.singleShot(self._ACTIVE_CAPTURE_SETTLE_MS, callback))
@@ -136,6 +140,16 @@ class ScreenCaptureController:
             self._notify(self._on_failure, "OCRまたはローカルAIは利用できません。")
             return
         self._start_selection(self._capture_region_and_ask)
+
+    @property
+    def vision_available(self) -> bool:
+        return self._vision_perception_service is not None and self._image_encoder is not None
+
+    def select_region_and_vision(self) -> None:
+        if not self.vision_available:
+            self._notify(self._on_failure, "Vision機能は利用できません。")
+            return
+        self._start_selection(self._capture_region_and_vision)
 
     def _start_selection(self, selected: Callable[[CaptureRectangle], None]) -> None:
         if self._overlay is not None:
@@ -182,6 +196,20 @@ class ScreenCaptureController:
         self._llm_worker=LlmWorker(action=lambda: self._llm_service.explain_text(text))
         self._llm_worker.completed.connect(lambda answer: self._notify(self._on_llm_result, answer))
         self._llm_worker.failed.connect(lambda _error: self._notify(self._on_failure, "ローカルAIの回答を生成できませんでした。"))
+        self._llm_worker.start()
+
+    def _capture_region_and_vision(self, rectangle: CaptureRectangle) -> None:
+        self._overlay = None
+        try:
+            frame = self._service.capture_region_in_memory(rectangle)
+            image = self._image_encoder.to_image_input(frame.image)
+        except Exception:
+            self._logger.exception("In-memory region perception capture failed")
+            self._notify(self._on_failure, "範囲を取得できませんでした。")
+            return
+        self._llm_worker = LlmWorker(action=lambda: self._vision_perception_service.answer("この範囲を簡潔に説明してください。", image)[0])
+        self._llm_worker.completed.connect(lambda answer: self._notify(self._on_llm_result, answer))
+        self._llm_worker.failed.connect(lambda _error: self._notify(self._on_failure, "画像の回答を生成できませんでした。"))
         self._llm_worker.start()
 
     def _cancelled(self) -> None:

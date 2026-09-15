@@ -13,7 +13,7 @@ from university_ai.agent.router import IntentRouter
 from university_ai.agent.tools.registry import ToolRegistry
 from university_ai.llm.config import ModelBackendConfig
 from university_ai.llm.factory import create_model_backend
-from university_ai.llm.models import LlmRequest, LlmResponse
+from university_ai.llm.models import ImageInput, LlmRequest, LlmResponse
 from university_ai.llm.ollama import OllamaBackend, OllamaEngine
 from university_ai.llm.openvino import OpenVINOBackend
 from university_ai.llm.service import LlmService, LlmServiceError
@@ -60,6 +60,19 @@ def test_ollama_backend_uses_no_think_soft_switch_only_for_qwen3_models():
     thinking_capable = OllamaBackend(ModelBackendConfig(model="qwen3:4b"))
     assert standard._user_content("質問") == "質問"
     assert thinking_capable._user_content("質問") == "/no_think\n質問"
+
+
+def test_ollama_multimodal_request_uses_in_memory_base64_images(monkeypatch):
+    backend = OllamaBackend(ModelBackendConfig(model="qwen3.5:4b"))
+    captured = {}
+    def fake_json(path, payload):
+        if path == "/api/tags": return {"models": [{"name": "qwen3.5:4b"}]}
+        captured["payload"] = payload
+        return {"message": {"content": "画像の説明"}, "done_reason": "stop"}
+    monkeypatch.setattr(backend, "_json", fake_json)
+    response = backend.generate_multimodal(LlmRequest("説明"), (ImageInput(b"image", width=1, height=1),))
+    assert response.text == "画像の説明"
+    assert captured["payload"]["messages"][-1]["images"] == ["aW1hZ2U="]
 
 
 def test_backend_factory_and_openvino_skeleton():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import re
 import time
 from datetime import UTC, datetime
@@ -9,7 +10,8 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from university_ai.llm.config import ModelBackendConfig
-from university_ai.llm.models import LlmRequest, LlmResponse
+from university_ai.llm.backend import MultimodalUnavailableError, MultimodalUnsupportedError
+from university_ai.llm.models import ImageInput, LlmRequest, LlmResponse
 
 
 class OllamaBackend:
@@ -54,18 +56,44 @@ class OllamaBackend:
         return {"runtime": self.runtime, "model": self._config.model, "endpoint": self._config.endpoint, "local_only": True}
 
     def generate(self, request: LlmRequest) -> LlmResponse:
-        messages = []
+        messages = self._messages_for(request)
+        return self._generate_payload(request, messages)
+
+    def generate_multimodal(self, request: LlmRequest, images: tuple[ImageInput, ...]) -> LlmResponse:
+        if not images:
+            raise MultimodalUnsupportedError("a multimodal request requires at least one image")
+        if not self.availability():
+            raise MultimodalUnavailableError("local vision runtime or model is unavailable")
+        for image in images:
+            image.validate()
+        messages = self._messages_for(request)
+        user_message = messages[-1]
+        user_message["images"] = [base64.b64encode(image.data).decode("ascii") for image in images]
+        return self._generate_payload(request, messages)
+
+    def _messages_for(self, request: LlmRequest) -> list[dict[str, object]]:
+        messages: list[dict[str, object]] = []
         if request.system_prompt:
             messages.append({"role": "system", "content": request.system_prompt})
-        messages.append({"role": "user", "content": self._user_content(request.prompt)})
+        if request.messages:
+            messages.extend(dict(message) for message in request.messages)
+        else:
+            messages.append({"role": "user", "content": self._user_content(request.prompt)})
+        if not messages or messages[-1].get("role") != "user":
+            messages.append({"role": "user", "content": self._user_content(request.prompt)})
+        return messages
+
+    def _generate_payload(self, request: LlmRequest, messages: list[dict[str, object]]) -> LlmResponse:
         payload = {
             "model": self._config.model,
             "messages": messages,
             "stream": False,
-            "think": self._config.think,
+            "think": self._config.think if request.thinking is None else request.thinking,
             "keep_alive": self._config.keep_alive,
             "options": {"temperature": request.temperature, "num_predict": max(request.max_tokens, 256)},
         }
+        if request.response_schema:
+            payload["format"] = request.response_schema
         started = time.monotonic()
         result = self._json("/api/chat", payload)
         message = result.get("message") or {}

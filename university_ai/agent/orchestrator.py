@@ -14,13 +14,21 @@ class AgentOrchestrator:
         Intent.DOCUMENT_SEARCH: "search_documents",
     }
 
-    def __init__(self, intent_router, context_builder, policy_engine, model_router, tools, *, llm_service=None) -> None:
+    def __init__(self, intent_router, context_builder, policy_engine, model_router, tools, *, llm_service=None, vision_service=None) -> None:
         self._intent_router, self._context_builder = intent_router, context_builder
         self._policy, self._model_router, self._tools, self._llm = policy_engine, model_router, tools, llm_service
+        self._vision = vision_service
 
     def handle(self, request: AgentRequest) -> AgentResponse:
         intent = self._intent_router.route(request)
-        route = self._model_router.route(intent)
+        image = request.metadata.get("image_input")
+        quality = request.metadata.get("ocr_quality")
+        vision_available = self._vision is not None and self._vision.available()
+        route = self._model_router.route(
+            intent, ocr_quality=quality,
+            requires_visual_reasoning=bool(request.metadata.get("requires_visual_reasoning")),
+            vision_available=vision_available,
+        )
         tool_name = self._TOOLS.get(intent)
         if tool_name:
             arguments = {"question": request.text} if tool_name == "search_documents" else {}
@@ -33,4 +41,8 @@ class AgentOrchestrator:
         if route is ModelRoute.FAST and self._llm is not None:
             response = self._llm.ask(request.text + context.user_context_suffix(), system_prompt=context.system_prompt())
             return AgentResponse(response.text, intent, route, PolicyDecision.READ_ONLY, metadata={"model": response.model, "context": context})
+        if route is ModelRoute.FAST_VISION and self._vision is not None and image is not None:
+            response = self._vision.ask(request.text + context.user_context_suffix(), image, system_prompt=context.system_prompt())
+            return AgentResponse(response.text, intent, route, PolicyDecision.READ_ONLY,
+                                 metadata={"model": response.model, "context": context, "vision": True})
         return AgentResponse("この要求は現在のAgent Phase 1では処理できません。", intent, route, PolicyDecision.DENIED, metadata={"context": context})

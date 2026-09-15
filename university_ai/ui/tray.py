@@ -71,6 +71,8 @@ class SystemTrayController:
             self._capture_menu.addAction("範囲選択", self._capture_controller.select_region)
             self._capture_menu.addAction("範囲を読取", self._capture_controller.select_region_and_ocr)
             self._capture_menu.addAction("範囲をAIに聞く", self._capture_controller.select_region_and_ask)
+            if getattr(self._capture_controller, "vision_available", False):
+                self._capture_menu.addAction("範囲をVision AIに聞く", self._capture_controller.select_region_and_vision)
         self._menu.addAction("設定", self._open_settings)
         self._menu.addSeparator()
         self._menu.addAction("終了", self._on_quit)

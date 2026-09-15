@@ -23,5 +23,6 @@ def load_cases(path: Path) -> list[BenchmarkCase]:
             id=str(item["id"]), category=str(item["category"]), input=str(item["input"]),
             expected=dict(item["expected"]), evaluation_type=EvaluationType(item["evaluation_type"]),
             timeout_seconds=float(item["timeout"]), target=str(item.get("target", "llm")),
+            image_fixture=str(item["image_fixture"]) if item.get("image_fixture") else None,
         ))
     return cases

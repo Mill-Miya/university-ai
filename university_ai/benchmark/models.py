@@ -33,6 +33,7 @@ class BenchmarkCase:
     evaluation_type: EvaluationType
     timeout_seconds: float
     target: str = "llm"
+    image_fixture: str | None = None
 
 
 @dataclass(frozen=True)

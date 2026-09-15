@@ -35,6 +35,12 @@ from university_ai.ui.documents import DocumentPresenter, DocumentsDialog
 from university_ai.ui.settings import SettingsDialog
 from university_ai.ui.tray import SystemTrayController
 from university_ai.ui.capture import ScreenCaptureController
+from university_ai.vision.images import ImagePreprocessor
+from university_ai.vision.ocr_adapter import TemporaryOcrAdapter
+from university_ai.vision.perception import OcrQualityAnalyzer, PerceptionRouter
+from university_ai.vision.qt import QtImageEncoder
+from university_ai.vision.service import InMemoryPerceptionService, VisionService
+from university_ai.agent.model_router import ModelRouter
 from university_ai.rag.embedding import OllamaEmbeddingEngine
 from university_ai.rag.indexing import DocumentIndexingService
 from university_ai.rag.retriever import Retriever
@@ -88,6 +94,19 @@ def build_resident_application(config: AppConfig):
     lifecycle_holder = {}
     presenter = UniversityPresenter(context, courses)
     llm_service = LlmService(create_model_backend(config.model_backend), config.model_backend)
+    vision_perception = None
+    image_encoder = None
+    if config.vision.enabled:
+        vision_config = config.vision.backend_config()
+        vision_service = VisionService(
+            LlmService(create_model_backend(vision_config), vision_config),
+            ImagePreprocessor(max_bytes=config.vision.max_image_bytes, max_dimension=config.vision.max_image_dimension),
+        )
+        vision_perception = InMemoryPerceptionService(
+            llm_service, vision_service, TemporaryOcrAdapter(TesseractOcrEngine()),
+            PerceptionRouter(ModelRouter(), OcrQualityAnalyzer(config.vision.ocr_high_minimum_characters)),
+        )
+        image_encoder = QtImageEncoder()
     embedding_engine = OllamaEmbeddingEngine()
     indexing_service = DocumentIndexingService(documents, chunks, embedding_engine)
     rag_service = RagService(Retriever(chunks, documents, embedding_engine), llm_service)
@@ -112,6 +131,8 @@ def build_resident_application(config: AppConfig):
         on_ocr_result=lambda text: QMessageBox.information(None, "OCR結果", text),
         llm_service=llm_service,
         on_llm_result=lambda text: QMessageBox.information(None, "AI回答", text),
+        vision_perception_service=vision_perception,
+        image_encoder=image_encoder,
     ))
     adapter = FallbackOnErrorAdapter(
         WindowsToastAdapter(registration=toast_registration),

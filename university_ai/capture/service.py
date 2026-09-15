@@ -72,6 +72,11 @@ class ScreenCaptureService:
         rectangle.validate()
         return self._capture(self._backend.capture_region(rectangle))
 
+    def capture_region_in_memory(self, rectangle: CaptureRectangle) -> CapturedFrame:
+        """Explicit user capture for perception only; does not touch storage or SQLite."""
+        rectangle.validate()
+        return self._backend.capture_region(rectangle)
+
     def _capture(self, frame: CapturedFrame) -> CaptureResult:
         captured_at = datetime.now(UTC)
         path = self._storage.store_png(frame.image, captured_at)

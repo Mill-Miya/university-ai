@@ -14,6 +14,7 @@ class AppConfig:
     data_dir: Path
     log_dir: Path
     model_backend: ModelBackendConfig = field(default_factory=ModelBackendConfig)
+    vision: "VisionConfig" = field(default_factory=lambda: VisionConfig())
 
     @property
     def database_path(self) -> Path:
@@ -27,6 +28,31 @@ class AppConfig:
     def default(cls, root: Path | None = None) -> "AppConfig":
         base = root or Path.cwd()
         return cls(data_dir=base / "data", log_dir=base / "logs")
+
+
+@dataclass(frozen=True)
+class VisionConfig:
+    """Optional local vision runtime configuration, isolated from text Fast Brain."""
+
+    enabled: bool = False
+    runtime: str = "ollama"
+    model: str = "qwen3.5:4b"
+    endpoint: str = "http://127.0.0.1:11434"
+    timeout_seconds: int = 120
+    keep_alive: str = "5m"
+    temperature: float = 0.3
+    max_tokens: int = 384
+    max_image_dimension: int = 1600
+    max_image_bytes: int = 8 * 1024 * 1024
+    ocr_high_minimum_characters: int = 12
+    fallback_to_text: bool = True
+
+    def backend_config(self) -> ModelBackendConfig:
+        return ModelBackendConfig(
+            runtime=self.runtime, model=self.model, endpoint=self.endpoint,
+            timeout_seconds=self.timeout_seconds, keep_alive=self.keep_alive,
+            temperature=self.temperature, max_tokens=self.max_tokens, think=False,
+        )
 
 
 @dataclass(frozen=True)

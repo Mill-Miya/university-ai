@@ -1,9 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Protocol
 
-from university_ai.llm.models import LlmRequest, LlmResponse
+from university_ai.llm.models import ImageInput, LlmRequest, LlmResponse
+
+
+class MultimodalBackendError(RuntimeError):
+    """Base failure for a backend's optional multimodal capability."""
+
+
+class MultimodalUnsupportedError(MultimodalBackendError):
+    pass
+
+
+class MultimodalUnavailableError(MultimodalBackendError):
+    pass
 
 
 class ModelBackend(Protocol):
@@ -15,8 +26,8 @@ class ModelBackend(Protocol):
 
 
 class MultimodalModelBackend(ModelBackend, Protocol):
-    """Future-only extension; Phase 2 does not call this method."""
-    def generate_multimodal(self, request: LlmRequest, images: Sequence[bytes]) -> LlmResponse: ...
+    """Optional image capability; image data remains in memory at this boundary."""
+    def generate_multimodal(self, request: LlmRequest, images: tuple[ImageInput, ...]) -> LlmResponse: ...
 
 
 class ManagedModelBackend(ModelBackend, Protocol):
