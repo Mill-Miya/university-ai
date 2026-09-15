@@ -30,6 +30,9 @@ class LlmRequest:
     context: str | None = None
     temperature: float = 0.3
     max_tokens: int = 512
+    # Perception/evidence data remains separate from the actual user request
+    # until the runtime adapter renders the final user message.
+    untrusted_data: str | None = None
     messages: tuple[dict[str, str], ...] = ()
     thinking: bool | None = None
     metadata: dict[str, object] = field(default_factory=dict)

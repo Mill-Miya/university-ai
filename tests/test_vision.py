@@ -36,6 +36,9 @@ class FakeTextLlm:
     def ask(self, prompt, **options):
         self.calls.append((prompt, options))
         return LlmResponse("OCRの最終回答", "text-fake", "fake", datetime.now(UTC), 0.01)
+    def analyze_perception(self, prompt, ocr_text, **options):
+        self.calls.append((prompt, {**options, "untrusted_data": ocr_text}))
+        return LlmResponse("OCRの最終回答", "text-fake", "fake", datetime.now(UTC), 0.01)
 
 
 class FakeOcr:
@@ -101,7 +104,7 @@ def test_in_memory_perception_uses_ocr_text_route_then_vision_fallback():
     high = InMemoryPerceptionService(text, vision, FakeOcr("講義の日本語テキスト"), router)
     response, decision = high.answer("説明して", image())
     assert response.text == "OCRの最終回答" and decision.route is ModelRoute.FAST
-    assert "[UNTRUSTED OCR OR INPUT DATA" in text.calls[0][0]
+    assert text.calls[0][1]["untrusted_data"] == "講義の日本語テキスト"
     low = InMemoryPerceptionService(text, vision, FakeOcr("???"), router)
     response, decision = low.answer("説明して", image())
     assert response.text == "画像の最終回答" and decision.route is ModelRoute.FAST_VISION
