@@ -57,7 +57,8 @@ def test_tray_retains_context_menu_for_resident_lifetime():
     )
     assert controller.start()
     assert controller._menu is controller._tray.menu
-    assert len(controller._menu.actions) == 8
+    assert len(controller._menu.actions) == 9
+    assert any(action[0] == "このアプリについて" for action in controller._menu.actions)
     controller.stop()
     assert controller._menu is None and controller._tray is None
 

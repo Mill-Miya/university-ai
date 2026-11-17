@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from pathlib import Path
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QStyle, QSystemTrayIcon
 
 from university_ai.ui.presenter import UniversityPresenter
@@ -74,6 +78,7 @@ class SystemTrayController:
             if getattr(self._capture_controller, "vision_available", False):
                 self._capture_menu.addAction("範囲をVision AIに聞く", self._capture_controller.select_region_and_vision)
         self._menu.addAction("設定", self._open_settings)
+        self._menu.addAction("このアプリについて", self._open_about)
         self._menu.addSeparator()
         self._menu.addAction("終了", self._on_quit)
         self._logger.info("System Tray context menu created")
@@ -102,6 +107,26 @@ class SystemTrayController:
 
     def _show(self, title: str, lines: list[str]) -> None:
         QMessageBox.information(None, title, "\n".join(lines) if lines else "該当する項目はありません。")
+
+    def _open_about(self) -> None:
+        """Show the personal creator logo without changing the app tray icon."""
+        dialog = QMessageBox()
+        dialog.setWindowTitle("University AI について")
+        dialog.setText("University AI")
+        dialog.setInformativeText("Created by Mill-Miya\nGitHub: https://github.com/Mill-Miya")
+
+        logo_path = Path(__file__).resolve().parents[2] / "assets" / "brand" / "r-logo-black.svg"
+        renderer = QSvgRenderer(str(logo_path))
+        if renderer.isValid():
+            icon = QPixmap(96, 96)
+            icon.fill(Qt.GlobalColor.white)
+            painter = QPainter(icon)
+            try:
+                renderer.render(painter)
+            finally:
+                painter.end()
+            dialog.setIconPixmap(icon)
+        dialog.exec()
 
     def _open_settings(self) -> None:
         self._settings_factory().exec()

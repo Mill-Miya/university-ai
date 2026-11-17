@@ -85,3 +85,9 @@ pytest -q
 ## MVP 1対象外
 
 LLM、Ollama、クラウドAI、PDF/RAG、Hotkey、Overlay、Memory、Web検索、音声、自律操作、メール/SNS連携はMVP 1には含みません。
+
+## Creator
+
+<a href="https://github.com/Mill-Miya"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/brand/r-logo-white.svg"><img src="assets/brand/r-logo-black.svg" alt="Mill-Miya R logo" width="44"></picture></a>
+
+Created by [Mill-Miya](https://github.com/Mill-Miya). トレイメニューの「このアプリについて」から制作者のロゴを確認できます。元のシステムトレイアイコンは変更していません。
